@@ -66,6 +66,7 @@ const Home = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
         >
+
           <p className="mt-10 text-lg md:text-xl text-gray-300 max-w-md mx-auto">
             Conectamos tecnología con tu negocio de forma eficiente e
             innovadora.

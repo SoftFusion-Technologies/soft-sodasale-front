@@ -29,9 +29,10 @@ import Home from './Pages/Home';
 import Footer from './Components/Footer';
 
 import LoginForm from './Components/login/LoginForm';
-
+import AdminPage from './Pages/Dash/AdminPage';
+import LocalesGet from './Pages/MetodosGets/LocalesGet';
+import UsuariosGet from './Pages/MetodosGets/UsuariosGet';
 function AppContent() {
-
   return (
     <>
       <div className="w-full min-h-screen overflow-x-hidden bg-[#1f3636]">
@@ -39,6 +40,33 @@ function AppContent() {
           <Ruta path="/" element={<Home />} />
           {/* componentes del staff y login INICIO */}
           <Ruta path="/login" element={<LoginForm />} />
+          <Ruta
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <AdminPage />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/usuarios"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <UsuariosGet />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/locales"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <LocalesGet />{' '}
+              </ProtectedRoute>
+            }
+          />
         </Rutas>
         <Footer></Footer>
       </div>
