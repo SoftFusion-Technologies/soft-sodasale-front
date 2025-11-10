@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+:root {
+  --font-family-base: 'Montserrat', sans-serif;
+  --font-weight-regular: 400;
+  --font-weight-black-italic: 900;
+}
+
+.titulo {
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-black-italic);
+  font-style: italic;
+}
+
+.cuerpo {
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-regular);
+}

@@ -32,6 +32,7 @@ import LoginForm from './Components/login/LoginForm';
 import AdminPage from './Pages/Dash/AdminPage';
 import LocalesGet from './Pages/MetodosGets/LocalesGet';
 import UsuariosGet from './Pages/MetodosGets/UsuariosGet';
+import ProductosCards from './Pages/Productos/ProductosCards';
 function AppContent() {
   return (
     <>
@@ -64,6 +65,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <LocalesGet />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/productos"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <ProductosCards />{' '}
               </ProtectedRoute>
             }
           />
