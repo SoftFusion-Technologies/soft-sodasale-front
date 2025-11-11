@@ -4,17 +4,15 @@
 import http from './http';
 
 // Arma querystring ignorando null/undefined/''
-const toQS = (params = {}) => {
-  const clean = {};
-  for (const [k, v] of Object.entries(params)) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === 'string' && v.trim() === '') continue;
-    clean[k] = v;
-  }
-  const qs = new URLSearchParams(clean).toString();
-  return qs ? `?${qs}` : '';
+export const toQS = (obj = {}) => {
+  const entries = Object.entries(obj).filter(
+    ([_, v]) => v !== undefined && v !== null && v !== ''
+  );
+  if (!entries.length) return '';
+  const s = new URLSearchParams();
+  for (const [k, v] of entries) s.append(k, String(v));
+  return `?${s.toString()}`;
 };
-
 /**
  * Listado de productos con filtros y paginación (page/limit, offset/limit o keyset)
  * Ej: listProductos({ q: 'Agua', estado: 'activo', presentacion: 'pack', page: 1, limit: 18 })
@@ -56,8 +54,15 @@ export async function patchProductoEstado(id, payload) {
  * - Si tu backend permite otras flags (ej. forzar), las pasás en opts.
  */
 export async function deleteProducto(id, opts = {}) {
-  const { data } = await http.delete(`/productos/${id}${toQS(opts)}`);
-  return data;
+  const res = await http.delete(`/productos/${id}${toQS(opts)}`);
+  // 204 => sin body
+  if (res.status === 204)
+    return { ok: true, message: 'Se borró correctamente.' };
+  return {
+    ok: true,
+    ...(res.data || {}),
+    message: res.data?.message || 'Se borró correctamente.'
+  };
 }
 
 export default {

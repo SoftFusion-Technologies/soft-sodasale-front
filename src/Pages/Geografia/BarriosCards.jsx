@@ -1,4 +1,4 @@
-// src/Pages/Productos/ProductosCards.jsx
+// src/Pages/Geografia/BarriosCards.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import NavbarStaff from '../Dash/NavbarStaff';
 import '../../Styles/staff/dashboard.css';
@@ -8,16 +8,18 @@ import ButtonBack from '../../Components/ButtonBack';
 import { motion } from 'framer-motion';
 import { FaPlus, FaSearch } from 'react-icons/fa';
 
-import ProductCard from '../../Components/Productos/ProductCard';
-import ProductoFormModal from '../../Components/Productos/ProductoFormModal';
+import BarrioCard from '../../Components/Geografia/BarrioCard';
+import BarrioFormModal from '../../Components/Geografia/BarrioFormModal';
 
 import {
-  listProductos,
-  createProducto,
-  updateProducto,
-  patchProductoEstado,
-  deleteProducto
-} from '../../api/productos.js';
+  listBarrios,
+  createBarrio,
+  updateBarrio,
+  patchBarrioEstado,
+  deleteBarrio
+} from '../../api/barrios';
+import { listCiudades } from '../../api/ciudades';
+import { listLocalidades } from '../../api/localidades';
 
 import {
   showErrorSwal,
@@ -26,7 +28,7 @@ import {
   showConfirmSwal
 } from '../../ui/swal';
 
-const useDebounce = (value, ms = 200) => {
+const useDebounce = (value, ms = 400) => {
   const [deb, setDeb] = useState(value);
   useEffect(() => {
     const id = setTimeout(() => setDeb(value), ms);
@@ -35,7 +37,11 @@ const useDebounce = (value, ms = 200) => {
   return deb;
 };
 
-export default function ProductosCards() {
+// Acepta boolean o { isConfirmed }
+const isConfirmed = (res) =>
+  typeof res === 'object' && res !== null ? !!res.isConfirmed : !!res;
+
+export default function BarriosCards() {
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,14 +49,66 @@ export default function ProductosCards() {
   const [q, setQ] = useState('');
   const dq = useDebounce(q);
 
-  const [filtroEstado, setFiltroEstado] = useState('todos'); // 'todos' | 'activos' | 'inactivos'
-  const [filtroPresentacion, setFiltroPresentacion] = useState('todas'); // 'todas' | 'unidad' | 'pack'
+  const [filtroEstado, setFiltroEstado] = useState('todas'); // todas|activas|inactivas
+  const [filtroCiudad, setFiltroCiudad] = useState('');
+  const [filtroLocalidad, setFiltroLocalidad] = useState('');
+  const [ciudades, setCiudades] = useState([]);
+  const [localidadesFiltro, setLocalidadesFiltro] = useState([]);
 
   const [page, setPage] = useState(1);
   const limit = 18;
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+
+  // Cargar ciudades para filtro
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await listCiudades({
+          estado: 'activa',
+          page: 1,
+          limit: 500,
+          orderBy: 'nombre',
+          orderDir: 'ASC'
+        });
+        setCiudades(Array.isArray(resp) ? resp : resp?.data || []);
+      } catch {
+        setCiudades([]);
+      }
+    })();
+  }, []);
+
+  // Cargar localidades del filtro cuando se elija una ciudad
+  useEffect(() => {
+    const loadLocs = async () => {
+      if (!filtroCiudad) {
+        setLocalidadesFiltro([]);
+        setFiltroLocalidad('');
+        return;
+      }
+      try {
+        const resp = await listLocalidades({
+          ciudad_id: filtroCiudad,
+          estado: 'activa',
+          page: 1,
+          limit: 500,
+          orderBy: 'nombre',
+          orderDir: 'ASC'
+        });
+        const data = Array.isArray(resp) ? resp : resp?.data || [];
+        setLocalidadesFiltro(data);
+        // limpiar si la localidad elegida no pertenece a la nueva ciudad
+        setFiltroLocalidad((curr) =>
+          data.some((l) => String(l.id) === String(curr)) ? curr : ''
+        );
+      } catch {
+        setLocalidadesFiltro([]);
+        setFiltroLocalidad('');
+      }
+    };
+    loadLocs(); // eslint-disable-next-line
+  }, [filtroCiudad]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -62,53 +120,24 @@ export default function ProductosCards() {
         orderBy: 'nombre',
         orderDir: 'ASC'
       };
+      if (filtroEstado === 'activas') params.estado = 'activa';
+      if (filtroEstado === 'inactivas') params.estado = 'inactiva';
+      if (filtroCiudad) params.ciudad_id = filtroCiudad;
+      if (filtroLocalidad) params.localidad_id = filtroLocalidad;
 
-      if (filtroEstado === 'activos') params.estado = 'activo';
-      if (filtroEstado === 'inactivos') params.estado = 'inactivo';
-      if (filtroPresentacion === 'unidad' || filtroPresentacion === 'pack') {
-        params.presentacion = filtroPresentacion;
+      const data = await listBarrios(params);
+      if (Array.isArray(data)) {
+        setRows(data);
+        setMeta(null);
+      } else {
+        setRows(data.data || []);
+        setMeta(data.meta || null);
       }
-
-      const resp = await listProductos(params);
-
-      // El backend puede devolver array plano o { data, meta }
-      let apiRows = Array.isArray(resp) ? resp : resp?.data || [];
-      let apiMeta = Array.isArray(resp) ? null : resp?.meta || null;
-
-      // Normalizamos meta para el pager
-      let normalized = null;
-      if (apiMeta) {
-        const lim = apiMeta.limit || limit;
-        const pageNum =
-          apiMeta.page ??
-          (apiMeta.offset !== undefined
-            ? Math.floor(apiMeta.offset / lim) + 1
-            : 1);
-        const totalPages =
-          apiMeta.totalPages ??
-          (apiMeta.total ? Math.ceil(apiMeta.total / lim) : undefined);
-        const hasPrev =
-          apiMeta.hasPrev ??
-          (totalPages ? pageNum > 1 : (apiMeta.offset || 0) > 0);
-        const hasNext =
-          apiMeta.hasNext ?? (totalPages ? pageNum < totalPages : false);
-
-        normalized = {
-          ...apiMeta,
-          page: pageNum,
-          totalPages,
-          hasPrev,
-          hasNext
-        };
-      }
-
-      setRows(apiRows);
-      setMeta(normalized);
     } catch (e) {
       console.error(e);
       await showErrorSwal({
         title: 'Error',
-        text: 'No se pudieron cargar los productos'
+        text: 'No se pudieron cargar los barrios'
       });
     } finally {
       setLoading(false);
@@ -117,13 +146,12 @@ export default function ProductosCards() {
 
   useEffect(() => {
     fetchData(); // eslint-disable-next-line
-  }, [dq, filtroEstado, filtroPresentacion, page]);
+  }, [dq, filtroEstado, filtroCiudad, filtroLocalidad, page]);
 
   const onNew = () => {
     setEditing(null);
     setModalOpen(true);
   };
-
   const onEdit = (item) => {
     setEditing(item);
     setModalOpen(true);
@@ -132,25 +160,30 @@ export default function ProductosCards() {
   const onSubmit = async (form) => {
     try {
       if (editing?.id) {
-        await updateProducto(editing.id, form);
+        await updateBarrio(editing.id, form);
         await showSuccessSwal({
           title: 'Guardado',
-          text: 'Producto actualizado'
+          text: 'Barrio actualizado'
         });
       } else {
-        await createProducto(form);
-        await showSuccessSwal({ title: 'Creado', text: 'Producto creado' });
+        await createBarrio(form);
+        await showSuccessSwal({ title: 'Creado', text: 'Barrio creado' });
       }
       await fetchData();
       setModalOpen(false);
       setEditing(null);
     } catch (err) {
       const { code, mensajeError, tips } = err || {};
+
       if (code === 'DUPLICATE') {
         return showErrorSwal({
-          title: 'SKU en uso',
-          text: mensajeError || 'Ya existe un producto con ese SKU.',
-          tips: tips?.length ? tips : ['Usá un SKU distinto.']
+          title: 'Duplicado',
+          text:
+            mensajeError ||
+            'Ya existe un barrio con ese nombre en esa localidad.',
+          tips: tips?.length
+            ? tips
+            : ['Usá otro nombre o elegí otra localidad.']
         });
       }
       if (code === 'MODEL_VALIDATION' || code === 'BAD_REQUEST') {
@@ -163,7 +196,7 @@ export default function ProductosCards() {
       if (code === 'NETWORK') {
         return showErrorSwal({
           title: 'Sin conexión',
-          text: mensajeError,
+          text: mensajeError || 'No se pudo conectar',
           tips
         });
       }
@@ -175,20 +208,19 @@ export default function ProductosCards() {
     }
   };
 
-  const onToggleActivo = async (item) => {
-    const nextEstado =
-      (item?.estado || '') === 'activo' ? 'inactivo' : 'activo';
+  const onToggleEstado = async (item) => {
+    const next = item.estado === 'activa' ? 'inactiva' : 'activa';
 
     // Optimista
     setRows((r) =>
-      r.map((x) => (x.id === item.id ? { ...x, estado: nextEstado } : x))
+      r.map((x) => (x.id === item.id ? { ...x, estado: next } : x))
     );
 
     try {
-      await patchProductoEstado(item.id, { estado: nextEstado });
+      await patchBarrioEstado(item.id, next);
       await showSuccessSwal({
-        title: nextEstado === 'activo' ? 'Activado' : 'Desactivado',
-        text: `Producto ${nextEstado === 'activo' ? 'activado' : 'desactivado'}`
+        title: next === 'activa' ? 'Activado' : 'Desactivado',
+        text: `Barrio ${next === 'activa' ? 'activado' : 'desactivado'}`
       });
     } catch (err) {
       // Rollback
@@ -204,12 +236,10 @@ export default function ProductosCards() {
     }
   };
 
-  const isConfirmed = (res) =>
-    typeof res === 'object' && res !== null ? !!res.isConfirmed : !!res;
-
+  // Eliminación directa (sin ConfirmDialog)
   const onDeleteDirect = async (item) => {
     const res = await showConfirmSwal({
-      title: '¿Eliminar producto?',
+      title: '¿Eliminar barrio?',
       text: `Se eliminará "${item?.nombre}". Esta acción no se puede deshacer.`,
       confirmText: 'Sí, eliminar'
     });
@@ -221,15 +251,18 @@ export default function ProductosCards() {
     setRows((r) => r.filter((x) => Number(x.id) !== id));
 
     try {
-      const resp = await deleteProducto(id); // hard delete por defecto
+      const resp = await deleteBarrio(id); // tu wrapper puede devolver { message } o 204
       await showSuccessSwal({
         title: 'Eliminado',
-        text: resp?.message || 'Se borró correctamente.'
+        text: resp?.message || 'Barrio eliminado correctamente.'
       });
-      await fetchData(); // re-sync (paginación/meta)
+
+      // Re-sync (paginación/meta)
+      await fetchData();
     } catch (err) {
       // Rollback a estado real
       await fetchData();
+
       const { mensajeError, tips } = err || {};
       await showErrorSwal({
         title: 'No se pudo eliminar',
@@ -251,7 +284,7 @@ export default function ProductosCards() {
           ← Anterior
         </button>
         <span className="text-white/90 text-sm">
-          Página {meta.page} {meta.totalPages ? `/ ${meta.totalPages}` : ''}
+          Página {meta.page} / {meta.totalPages}
         </span>
         <button
           onClick={() => setPage((p) => (meta.hasNext ? p + 1 : p))}
@@ -279,9 +312,11 @@ export default function ProductosCards() {
               transition={{ duration: 0.6 }}
               className="text-4xl titulo uppercase font-bold text-white mb-3 drop-shadow-md"
             >
-              Productos
+              Barrios
             </motion.h1>
-            <p className="text-white/80">Gestioná productos.</p>
+            <p className="text-white/80">
+              Gestioná barrios con filtros por ciudad y localidad.
+            </p>
           </div>
 
           {/* Barra de acciones */}
@@ -295,12 +330,50 @@ export default function ProductosCards() {
                     setPage(1);
                     setQ(e.target.value);
                   }}
-                  placeholder="Buscar por nombre o SKU…"
+                  placeholder="Buscar por nombre…"
                   className="w-full pl-10 pr-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Ciudad */}
+                <select
+                  value={filtroCiudad}
+                  onChange={(e) => {
+                    setPage(1);
+                    setFiltroCiudad(e.target.value);
+                  }}
+                  className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="">Todas las ciudades</option>
+                  {ciudades.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} {c.provincia ? `(${c.provincia})` : ''}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Localidad (depende de ciudad) */}
+                <select
+                  value={filtroLocalidad}
+                  onChange={(e) => {
+                    setPage(1);
+                    setFiltroLocalidad(e.target.value);
+                  }}
+                  disabled={!filtroCiudad}
+                  className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
+                >
+                  <option value="">
+                    {filtroCiudad ? 'Todas las localidades' : 'Elegí ciudad'}
+                  </option>
+                  {localidadesFiltro.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.nombre}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Estado */}
                 <select
                   value={filtroEstado}
                   onChange={(e) => {
@@ -309,29 +382,16 @@ export default function ProductosCards() {
                   }}
                   className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  <option value="todos">Todos</option>
-                  <option value="activos">Activos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-
-                <select
-                  value={filtroPresentacion}
-                  onChange={(e) => {
-                    setPage(1);
-                    setFiltroPresentacion(e.target.value);
-                  }}
-                  className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                >
                   <option value="todas">Todas</option>
-                  <option value="unidad">Unidad</option>
-                  <option value="pack">Pack</option>
+                  <option value="activas">Activas</option>
+                  <option value="inactivas">Inactivas</option>
                 </select>
 
                 <button
                   onClick={onNew}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-600 text-white font-semibold hover:bg-teal-700"
                 >
-                  <FaPlus /> Nuevo Producto
+                  <FaPlus /> Nuevo Barrio
                 </button>
               </div>
             </div>
@@ -345,18 +405,17 @@ export default function ProductosCards() {
               </div>
             ) : rows.length === 0 ? (
               <div className="text-center text-white/80 py-24">
-                No hay productos con esos filtros.
+                No hay barrios con esos filtros.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                 {rows.map((it) => (
-                  <ProductCard
+                  <BarrioCard
                     key={it.id}
                     item={it}
                     onEdit={onEdit}
-                    onToggleActivo={onToggleActivo}
-                    onDelete={onDeleteDirect}
-                    color={it.presentacion === 'pack' ? '#a12262' : '#06b6d4'}
+                    onToggleEstado={onToggleEstado}
+                    onDelete={onDeleteDirect} // ← eliminación directa
                   />
                 ))}
               </div>
@@ -367,8 +426,8 @@ export default function ProductosCards() {
         </div>
       </section>
 
-      {/* Modal de alta/edición */}
-      <ProductoFormModal
+      {/* Modal alta/edición */}
+      <BarrioFormModal
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);

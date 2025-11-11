@@ -33,6 +33,10 @@ import AdminPage from './Pages/Dash/AdminPage';
 import LocalesGet from './Pages/MetodosGets/LocalesGet';
 import UsuariosGet from './Pages/MetodosGets/UsuariosGet';
 import ProductosCards from './Pages/Productos/ProductosCards';
+import CiudadesCards from './Pages/Geografia/CiudadesCards';
+import AdminPageGeografia from './Pages/Geografia/AdminPageGeografia';
+import LocalidadesCards from './Pages/Geografia/LocalidadesCards';
+import BarriosCards from './Pages/Geografia/BarriosCards';
 function AppContent() {
   return (
     <>
@@ -74,6 +78,42 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <ProductosCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/geografia"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <AdminPageGeografia />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/geografia/ciudades"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <CiudadesCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/geografia/localidades"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <LocalidadesCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/geografia/barrios"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <BarriosCards />{' '}
               </ProtectedRoute>
             }
           />

@@ -1,4 +1,4 @@
-// src/Pages/Productos/ProductosCards.jsx
+// src/Pages/Geografia/CiudadesCards.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import NavbarStaff from '../Dash/NavbarStaff';
 import '../../Styles/staff/dashboard.css';
@@ -8,16 +8,16 @@ import ButtonBack from '../../Components/ButtonBack';
 import { motion } from 'framer-motion';
 import { FaPlus, FaSearch } from 'react-icons/fa';
 
-import ProductCard from '../../Components/Productos/ProductCard';
-import ProductoFormModal from '../../Components/Productos/ProductoFormModal';
+import CiudadCard from '../../Components/Geografia/CiudadCard';
+import CiudadFormModal from '../../Components/Geografia/CiudadFormModal';
 
 import {
-  listProductos,
-  createProducto,
-  updateProducto,
-  patchProductoEstado,
-  deleteProducto
-} from '../../api/productos.js';
+  listCiudades,
+  createCiudad,
+  updateCiudad,
+  patchCiudadEstado,
+  deleteCiudad
+} from '../../api/ciudades';
 
 import {
   showErrorSwal,
@@ -26,7 +26,7 @@ import {
   showConfirmSwal
 } from '../../ui/swal';
 
-const useDebounce = (value, ms = 200) => {
+const useDebounce = (value, ms = 400) => {
   const [deb, setDeb] = useState(value);
   useEffect(() => {
     const id = setTimeout(() => setDeb(value), ms);
@@ -35,17 +35,18 @@ const useDebounce = (value, ms = 200) => {
   return deb;
 };
 
-export default function ProductosCards() {
+// Soporta confirm wrappers que devuelven boolean o { isConfirmed }
+const isConfirmed = (res) =>
+  typeof res === 'object' && res !== null ? !!res.isConfirmed : !!res;
+
+export default function CiudadesCards() {
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [q, setQ] = useState('');
   const dq = useDebounce(q);
-
-  const [filtroEstado, setFiltroEstado] = useState('todos'); // 'todos' | 'activos' | 'inactivos'
-  const [filtroPresentacion, setFiltroPresentacion] = useState('todas'); // 'todas' | 'unidad' | 'pack'
-
+  const [filtroEstado, setFiltroEstado] = useState('todas'); // todas|activas|inactivas
   const [page, setPage] = useState(1);
   const limit = 18;
 
@@ -62,53 +63,22 @@ export default function ProductosCards() {
         orderBy: 'nombre',
         orderDir: 'ASC'
       };
+      if (filtroEstado === 'activas') params.estado = 'activa';
+      if (filtroEstado === 'inactivas') params.estado = 'inactiva';
 
-      if (filtroEstado === 'activos') params.estado = 'activo';
-      if (filtroEstado === 'inactivos') params.estado = 'inactivo';
-      if (filtroPresentacion === 'unidad' || filtroPresentacion === 'pack') {
-        params.presentacion = filtroPresentacion;
+      const data = await listCiudades(params);
+      if (Array.isArray(data)) {
+        setRows(data);
+        setMeta(null);
+      } else {
+        setRows(data.data || []);
+        setMeta(data.meta || null);
       }
-
-      const resp = await listProductos(params);
-
-      // El backend puede devolver array plano o { data, meta }
-      let apiRows = Array.isArray(resp) ? resp : resp?.data || [];
-      let apiMeta = Array.isArray(resp) ? null : resp?.meta || null;
-
-      // Normalizamos meta para el pager
-      let normalized = null;
-      if (apiMeta) {
-        const lim = apiMeta.limit || limit;
-        const pageNum =
-          apiMeta.page ??
-          (apiMeta.offset !== undefined
-            ? Math.floor(apiMeta.offset / lim) + 1
-            : 1);
-        const totalPages =
-          apiMeta.totalPages ??
-          (apiMeta.total ? Math.ceil(apiMeta.total / lim) : undefined);
-        const hasPrev =
-          apiMeta.hasPrev ??
-          (totalPages ? pageNum > 1 : (apiMeta.offset || 0) > 0);
-        const hasNext =
-          apiMeta.hasNext ?? (totalPages ? pageNum < totalPages : false);
-
-        normalized = {
-          ...apiMeta,
-          page: pageNum,
-          totalPages,
-          hasPrev,
-          hasNext
-        };
-      }
-
-      setRows(apiRows);
-      setMeta(normalized);
     } catch (e) {
       console.error(e);
       await showErrorSwal({
         title: 'Error',
-        text: 'No se pudieron cargar los productos'
+        text: 'No se pudieron cargar las ciudades'
       });
     } finally {
       setLoading(false);
@@ -117,13 +87,12 @@ export default function ProductosCards() {
 
   useEffect(() => {
     fetchData(); // eslint-disable-next-line
-  }, [dq, filtroEstado, filtroPresentacion, page]);
+  }, [dq, filtroEstado, page]);
 
   const onNew = () => {
     setEditing(null);
     setModalOpen(true);
   };
-
   const onEdit = (item) => {
     setEditing(item);
     setModalOpen(true);
@@ -132,25 +101,28 @@ export default function ProductosCards() {
   const onSubmit = async (form) => {
     try {
       if (editing?.id) {
-        await updateProducto(editing.id, form);
+        await updateCiudad(editing.id, form);
         await showSuccessSwal({
           title: 'Guardado',
-          text: 'Producto actualizado'
+          text: 'Ciudad actualizada'
         });
       } else {
-        await createProducto(form);
-        await showSuccessSwal({ title: 'Creado', text: 'Producto creado' });
+        await createCiudad(form);
+        await showSuccessSwal({ title: 'Creada', text: 'Ciudad creada' });
       }
       await fetchData();
       setModalOpen(false);
       setEditing(null);
     } catch (err) {
       const { code, mensajeError, tips } = err || {};
+
       if (code === 'DUPLICATE') {
         return showErrorSwal({
-          title: 'SKU en uso',
-          text: mensajeError || 'Ya existe un producto con ese SKU.',
-          tips: tips?.length ? tips : ['Usá un SKU distinto.']
+          title: 'Duplicada',
+          text:
+            mensajeError ||
+            'Ya existe una ciudad con ese nombre en esa provincia.',
+          tips: tips?.length ? tips : ['Usá otro nombre o provincia.']
         });
       }
       if (code === 'MODEL_VALIDATION' || code === 'BAD_REQUEST') {
@@ -163,7 +135,7 @@ export default function ProductosCards() {
       if (code === 'NETWORK') {
         return showErrorSwal({
           title: 'Sin conexión',
-          text: mensajeError,
+          text: mensajeError || 'No se pudo conectar',
           tips
         });
       }
@@ -175,20 +147,19 @@ export default function ProductosCards() {
     }
   };
 
-  const onToggleActivo = async (item) => {
-    const nextEstado =
-      (item?.estado || '') === 'activo' ? 'inactivo' : 'activo';
+  const onToggleEstado = async (item) => {
+    const next = item.estado === 'activa' ? 'inactiva' : 'activa';
 
     // Optimista
     setRows((r) =>
-      r.map((x) => (x.id === item.id ? { ...x, estado: nextEstado } : x))
+      r.map((x) => (x.id === item.id ? { ...x, estado: next } : x))
     );
 
     try {
-      await patchProductoEstado(item.id, { estado: nextEstado });
+      await patchCiudadEstado(item.id, next);
       await showSuccessSwal({
-        title: nextEstado === 'activo' ? 'Activado' : 'Desactivado',
-        text: `Producto ${nextEstado === 'activo' ? 'activado' : 'desactivado'}`
+        title: next === 'activa' ? 'Activada' : 'Desactivada',
+        text: `Ciudad ${next === 'activa' ? 'activada' : 'desactivada'}`
       });
     } catch (err) {
       // Rollback
@@ -204,12 +175,10 @@ export default function ProductosCards() {
     }
   };
 
-  const isConfirmed = (res) =>
-    typeof res === 'object' && res !== null ? !!res.isConfirmed : !!res;
-
+  // Eliminación directa (sin ConfirmDialog)
   const onDeleteDirect = async (item) => {
     const res = await showConfirmSwal({
-      title: '¿Eliminar producto?',
+      title: '¿Eliminar ciudad?',
       text: `Se eliminará "${item?.nombre}". Esta acción no se puede deshacer.`,
       confirmText: 'Sí, eliminar'
     });
@@ -217,20 +186,56 @@ export default function ProductosCards() {
 
     const id = Number(item.id);
 
-    // Optimista
+    // Optimista: sacamos del grid ya
     setRows((r) => r.filter((x) => Number(x.id) !== id));
 
     try {
-      const resp = await deleteProducto(id); // hard delete por defecto
+      const resp = await deleteCiudad(id); // backend puede responder 204 o 200
       await showSuccessSwal({
-        title: 'Eliminado',
-        text: resp?.message || 'Se borró correctamente.'
+        title: 'Eliminada',
+        text: resp?.message || 'Ciudad eliminada correctamente.'
       });
-      await fetchData(); // re-sync (paginación/meta)
-    } catch (err) {
-      // Rollback a estado real
+
+      // Re-sync para ajustar paginación/meta
       await fetchData();
-      const { mensajeError, tips } = err || {};
+    } catch (err) {
+      // Rollback total al estado real
+      await fetchData();
+
+      const { code, mensajeError, tips, details } = err || {};
+      if (code === 'HAS_DEPENDENCIES') {
+        const res2 = await showConfirmSwal({
+          icon: 'warning',
+          title: 'Tiene dependencias',
+          text:
+            (mensajeError ||
+              'Esta ciudad tiene localidades/barrios asociados. ¿Deseás desactivarla?') +
+            (details?.localidadesAsociadas
+              ? `<br/><br/>Localidades asociadas: <b>${details.localidadesAsociadas}</b>`
+              : ''),
+          confirmText: 'Desactivar',
+          cancelText: 'Cancelar'
+        });
+        if (isConfirmed(res2)) {
+          try {
+            await patchCiudadEstado(id, 'inactiva');
+            await fetchData();
+            await showSuccessSwal({
+              title: 'Desactivada',
+              text: 'La ciudad fue desactivada (posee dependencias).'
+            });
+          } catch (err2) {
+            const { mensajeError: m2, tips: t2 } = err2 || {};
+            await showErrorSwal({
+              title: 'No se pudo desactivar',
+              text: m2 || 'Error al desactivar',
+              tips: t2
+            });
+          }
+        }
+        return;
+      }
+
       await showErrorSwal({
         title: 'No se pudo eliminar',
         text: mensajeError || 'Ocurrió un error al eliminar',
@@ -251,7 +256,7 @@ export default function ProductosCards() {
           ← Anterior
         </button>
         <span className="text-white/90 text-sm">
-          Página {meta.page} {meta.totalPages ? `/ ${meta.totalPages}` : ''}
+          Página {meta.page} / {meta.totalPages}
         </span>
         <button
           onClick={() => setPage((p) => (meta.hasNext ? p + 1 : p))}
@@ -279,9 +284,9 @@ export default function ProductosCards() {
               transition={{ duration: 0.6 }}
               className="text-4xl titulo uppercase font-bold text-white mb-3 drop-shadow-md"
             >
-              Productos
+              Ciudades
             </motion.h1>
-            <p className="text-white/80">Gestioná productos.</p>
+            <p className="text-white/80">Gestioná ciudades y su estado.</p>
           </div>
 
           {/* Barra de acciones */}
@@ -295,7 +300,7 @@ export default function ProductosCards() {
                     setPage(1);
                     setQ(e.target.value);
                   }}
-                  placeholder="Buscar por nombre o SKU…"
+                  placeholder="Buscar por nombre o provincia…"
                   className="w-full pl-10 pr-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
@@ -309,29 +314,16 @@ export default function ProductosCards() {
                   }}
                   className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  <option value="todos">Todos</option>
-                  <option value="activos">Activos</option>
-                  <option value="inactivos">Inactivos</option>
-                </select>
-
-                <select
-                  value={filtroPresentacion}
-                  onChange={(e) => {
-                    setPage(1);
-                    setFiltroPresentacion(e.target.value);
-                  }}
-                  className="px-3 py-2 rounded-xl border border-white/20 bg-white/90 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                >
                   <option value="todas">Todas</option>
-                  <option value="unidad">Unidad</option>
-                  <option value="pack">Pack</option>
+                  <option value="activas">Activas</option>
+                  <option value="inactivas">Inactivas</option>
                 </select>
 
                 <button
                   onClick={onNew}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-600 text-white font-semibold hover:bg-teal-700"
                 >
-                  <FaPlus /> Nuevo Producto
+                  <FaPlus /> Nueva Ciudad
                 </button>
               </div>
             </div>
@@ -345,18 +337,17 @@ export default function ProductosCards() {
               </div>
             ) : rows.length === 0 ? (
               <div className="text-center text-white/80 py-24">
-                No hay productos con esos filtros.
+                No hay ciudades con esos filtros.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
                 {rows.map((it) => (
-                  <ProductCard
+                  <CiudadCard
                     key={it.id}
                     item={it}
                     onEdit={onEdit}
-                    onToggleActivo={onToggleActivo}
-                    onDelete={onDeleteDirect}
-                    color={it.presentacion === 'pack' ? '#a12262' : '#06b6d4'}
+                    onToggleEstado={onToggleEstado}
+                    onDelete={onDeleteDirect} // ← directo
                   />
                 ))}
               </div>
@@ -367,8 +358,8 @@ export default function ProductosCards() {
         </div>
       </section>
 
-      {/* Modal de alta/edición */}
-      <ProductoFormModal
+      {/* Modal alta/edición */}
+      <CiudadFormModal
         open={modalOpen}
         onClose={() => {
           setModalOpen(false);
