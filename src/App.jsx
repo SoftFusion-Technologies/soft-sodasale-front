@@ -39,6 +39,7 @@ import LocalidadesCards from './Pages/Geografia/LocalidadesCards';
 import BarriosCards from './Pages/Geografia/BarriosCards';
 import AdminPageVendedores from './Pages/Vendedores/AdminPageVendedores';
 import VendedoresCards from './Pages/Vendedores/VendedoresCards';
+import VendedorBarriosCards from './Pages/Vendedores/VendedorBarriosCards';
 function AppContent() {
   return (
     <>
@@ -134,6 +135,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <VendedoresCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/vendedores/vendedores_barrios"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VendedorBarriosCards />{' '}
               </ProtectedRoute>
             }
           />
