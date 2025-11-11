@@ -37,6 +37,8 @@ import CiudadesCards from './Pages/Geografia/CiudadesCards';
 import AdminPageGeografia from './Pages/Geografia/AdminPageGeografia';
 import LocalidadesCards from './Pages/Geografia/LocalidadesCards';
 import BarriosCards from './Pages/Geografia/BarriosCards';
+import AdminPageVendedores from './Pages/Vendedores/AdminPageVendedores';
+import VendedoresCards from './Pages/Vendedores/VendedoresCards';
 function AppContent() {
   return (
     <>
@@ -114,6 +116,24 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <BarriosCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/vendedores"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <AdminPageVendedores />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/vendedores/vendedores"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VendedoresCards />{' '}
               </ProtectedRoute>
             }
           />

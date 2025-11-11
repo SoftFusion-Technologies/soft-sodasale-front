@@ -1,4 +1,4 @@
-// src/Pages/Geografia/AdminPageGeografia.jsx
+// src/Pages/Vendedores/AdminPageVendedores.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
 import NavbarStaff from '../Dash/NavbarStaff';
@@ -8,31 +8,21 @@ import { useAuth } from '../../AuthContext';
 import ParticlesBackground from '../../Components/ParticlesBackground';
 import { motion } from 'framer-motion';
 import ButtonBack from '../../Components/ButtonBack';
-import {
-  FaCity,
-  FaMap,
-  FaMapMarkerAlt /* FaHome (opcional) */
-} from 'react-icons/fa';
+import { FaUserTie, FaMapMarkedAlt } from 'react-icons/fa';
 
-const geografiaLinks = [
+const vendedoresLinks = [
   {
-    to: '/dashboard/geografia/ciudades',
-    label: 'Ciudades',
-    icon: <FaCity />
+    to: '/dashboard/vendedores/vendedores',
+    label: 'Vendedores',
+    icon: <FaUserTie />
   },
   {
-    to: '/dashboard/geografia/localidades',
-    label: 'Localidades',
-    icon: <FaMap />
-  },
-  {
-    to: '/dashboard/geografia/barrios',
-    label: 'Barrios',
-    icon: <FaMapMarkerAlt /> // o <FaHome /> si preferís “viviendas/barrio”
+    to: '/dashboard/vendedores/vendedores_barrios',
+    label: 'Barrios Asignados',
+    icon: <FaMapMarkedAlt />
   }
 ];
-
-const AdminPageGeografia = () => {
+const AdminPageVendedores = () => {
   const { userLevel } = useAuth(); // por si necesitás permisos/roles más adelante
 
   return (
@@ -50,13 +40,13 @@ const AdminPageGeografia = () => {
               transition={{ duration: 0.6 }}
               className="text-4xl titulo uppercase font-bold text-white mb-8 drop-shadow-md"
             >
-              Gestión de área geográfica{' '}
+              Gestión de Vendedores{' '}
             </motion.h1>
           </div>
 
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 justify-center">
-              {geografiaLinks.map(({ to, label, icon }, index) => (
+              {vendedoresLinks.map(({ to, label, icon }, index) => (
                 <Link
                   to={typeof to === 'string' ? to : to.pathname}
                   state={typeof to === 'object' ? to.state || {} : {}}
@@ -82,4 +72,4 @@ const AdminPageGeografia = () => {
   );
 };
 
-export default AdminPageGeografia;
+export default AdminPageVendedores;

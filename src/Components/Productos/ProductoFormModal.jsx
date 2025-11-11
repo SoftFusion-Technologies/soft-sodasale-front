@@ -454,7 +454,7 @@ export default function ProductoFormModal({
                       name="estado"
                       value={form.estado}
                       onChange={handle}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-black
                                  focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
                     >
                       <option value="activo">Activo</option>
