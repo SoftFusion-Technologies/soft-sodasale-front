@@ -552,6 +552,8 @@ export default function VendedorBarriosCards() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSubmit={onSubmit}
+        fetchData={fetchData}
+
       />
     </>
   );
