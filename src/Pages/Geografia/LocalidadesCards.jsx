@@ -410,6 +410,7 @@ export default function LocalidadesCards() {
         }}
         onSubmit={onSubmit}
         initial={editing}
+        fetchData={fetchData}
       />
     </>
   );

@@ -13,6 +13,40 @@ export async function createBarrio(body) {
   return data;
 }
 
+/**
+ * Bulk de barrios (una sola URL):
+ * POST /geo/barrios/bulk
+ * Body: { localidad_id, items, dryRun }
+ *
+ * - localidad_id: number (obligatorio)
+ * - items: string[] | { nombre, estado? }[] (obligatorio)
+ * - dryRun: boolean (opcional, default false)
+ * - signal: AbortController.signal (opcional)
+ */
+export async function bulkBarrios({
+  localidad_id,
+  items,
+  dryRun = false,
+  signal
+} = {}) {
+  const lidNum = Number.parseInt(localidad_id, 10);
+  if (!Number.isFinite(lidNum) || lidNum <= 0) {
+    throw new Error('localidad_id inválido');
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('items debe ser un array con al menos 1 elemento');
+  }
+
+  const { data } = await http.post(
+    '/geo/barrios/bulk',
+    { localidad_id: lidNum, items, dryRun },
+    { signal }
+  );
+  return data; // { message, meta, creadas, omitidas }
+}
+export function bulkBarriosPreview(args) {
+  return bulkBarrios({ ...args, dryRun: true });
+}
 // PUT /geo/barrios/:id
 export async function updateBarrio(id, body) {
   const { data } = await http.put(`/geo/barrios/${id}`, body);

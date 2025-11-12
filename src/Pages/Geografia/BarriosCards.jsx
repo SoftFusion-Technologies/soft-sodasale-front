@@ -435,6 +435,7 @@ export default function BarriosCards() {
         }}
         onSubmit={onSubmit}
         initial={editing}
+        fetchData={fetchData}
       />
     </>
   );

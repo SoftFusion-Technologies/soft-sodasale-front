@@ -13,6 +13,50 @@ export async function createLocalidad(body) {
   return data;
 }
 
+
+/* ===============================
+   BULK localidades
+   - items: array de strings o objetos { nombre, estado? }
+   - dryRun: true = preview sin insertar
+   - pathVariant: 'default' | 'city'
+     * 'default' → POST /geo/localidades/bulk  (usa ciudad_id en body)
+     * 'city'    → POST /geo/ciudades/:ciudad_id/localidades/bulk
+   - signal: AbortController?.signal (opcional)
+   =============================== */
+export async function bulkLocalidades({
+  ciudad_id,
+  items,
+  dryRun = false,
+  pathVariant = 'default',
+  signal
+} = {}) {
+  const cidNum = Number.parseInt(ciudad_id, 10);
+  if (!Number.isFinite(cidNum) || cidNum <= 0) {
+    throw new Error('ciudad_id inválido');
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('items debe ser un array con al menos 1 elemento');
+  }
+
+  const path =
+    pathVariant === 'city'
+      ? `/geo/ciudades/${cidNum}/localidades/bulk`
+      : '/geo/localidades/bulk';
+
+  const body =
+    pathVariant === 'city'
+      ? { items, dryRun } // ciudad en la URL
+      : { ciudad_id: cidNum, items, dryRun }; // ciudad en el body
+
+  const { data } = await http.post(path, body, { signal });
+  return data; // { message, meta, creadas, omitidas } en éxito
+}
+
+// Atajo para preview (dryRun)
+export function bulkLocalidadesPreview(args) {
+  return bulkLocalidades({ ...args, dryRun: true });
+}
+
 // Actualizar
 export async function updateLocalidad(id, body) {
   const { data } = await http.put(`/geo/localidades/${id}`, body);
