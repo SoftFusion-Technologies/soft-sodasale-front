@@ -1,0 +1,783 @@
+// ===============================
+// FILE: src/Pages/Ventas/VentasHistorialPage.jsx
+// ===============================
+import React, { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
+
+import NavbarStaff from '../Dash/NavbarStaff';
+import ParticlesBackground from '../../Components/ParticlesBackground';
+import ButtonBack from '../../Components/ButtonBack';
+
+import { listVentas, getVenta, anularVenta } from '../../api/ventas';
+import { moneyAR } from '../../utils/money';
+
+import {
+  FaSearch,
+  FaPlus,
+  FaTimes,
+  FaFileInvoiceDollar,
+  FaUser,
+  FaUserTie,
+  FaMoneyBillWave,
+  FaExclamationTriangle
+} from 'react-icons/fa';
+
+const badgeTipoClasses = {
+  contado: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  fiado: 'bg-amber-100 text-amber-800 border-amber-200',
+  a_cuenta: 'bg-sky-100 text-sky-800 border-sky-200'
+};
+
+const badgeEstadoClasses = {
+  confirmada: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  anulada: 'bg-rose-100 text-rose-800 border-rose-200'
+};
+
+const fmtFecha = (v) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  });
+};
+
+const VentasHistorialPage = () => {
+  // ------------ estado base ------------
+  const [ventas, setVentas] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // filtros
+  const [filtros, setFiltros] = useState({
+    q: '',
+    tipo: '',
+    estado: '',
+    desde: '',
+    hasta: '',
+    page: 1,
+    limit: 20
+  });
+
+  // detalle
+  const [detalleOpen, setDetalleOpen] = useState(false);
+  const [detalle, setDetalle] = useState(null);
+  const [detalleLoading, setDetalleLoading] = useState(false);
+
+  // ------------ carga de datos ------------
+  const fetchVentas = async (overrides = {}) => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = {
+        ...filtros,
+        ...overrides
+      };
+
+      // limpiamos page si viene override
+      if (overrides.page) params.page = overrides.page;
+
+      const resp = await listVentas(params); // { data, meta }
+      setVentas(resp.data || []);
+      setMeta(resp.meta || null);
+      setFiltros((prev) => ({
+        ...prev,
+        page: params.page || prev.page
+      }));
+    } catch (e) {
+      console.error('Error cargando ventas:', e);
+      setError('No se pudo cargar el historial de ventas.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchVentas({ page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ------------ KPIs ------------
+  const kpis = useMemo(() => {
+    const total = ventas.reduce((acc, v) => acc + Number(v.total_neto || 0), 0);
+    const count = ventas.length;
+    const fiadas = ventas.filter((v) => v.tipo === 'fiado').length;
+    const contado = ventas.filter((v) => v.tipo === 'contado').length;
+    return { total, count, fiadas, contado };
+  }, [ventas]);
+
+  // ------------ handlers filtros ------------
+  const handleFiltroChange = (e) => {
+    const { name, value } = e.target;
+    setFiltros((f) => ({
+      ...f,
+      [name]: value
+    }));
+  };
+
+  const handleBuscar = () => {
+    fetchVentas({ page: 1 });
+  };
+
+  const handleLimpiar = () => {
+    const reset = {
+      q: '',
+      tipo: '',
+      estado: '',
+      desde: '',
+      hasta: '',
+      page: 1,
+      limit: filtros.limit
+    };
+    setFiltros(reset);
+    fetchVentas(reset);
+  };
+
+  const handlePageChange = (dir) => {
+    if (!meta) return;
+    const next = filtros.page + dir;
+    if (next < 1 || next > meta.totalPages) return;
+    fetchVentas({ page: next });
+  };
+
+  // ------------ detalle ------------
+  const abrirDetalle = async (venta) => {
+    setDetalleOpen(true);
+    setDetalleLoading(true);
+    try {
+      const full = await getVenta(venta.id); // incluye cliente, vendedor e items
+      setDetalle(full);
+    } catch (e) {
+      console.error('Error obteniendo detalle de venta:', e);
+    } finally {
+      setDetalleLoading(false);
+    }
+  };
+
+  const cerrarDetalle = () => {
+    setDetalleOpen(false);
+    setDetalle(null);
+  };
+
+  const handleAnular = async (venta) => {
+    if (venta.estado === 'anulada') return;
+    const ok = window.confirm(
+      `¿Seguro que querés anular la venta #${venta.id}?`
+    );
+    if (!ok) return;
+    try {
+      await anularVenta(venta.id);
+      await fetchVentas(); // refresca listado
+      if (detalle?.id === venta.id) {
+        // refrescar detalle si está abierto
+        const full = await getVenta(venta.id);
+        setDetalle(full);
+      }
+    } catch (e) {
+      console.error('No se pudo anular la venta:', e);
+      alert('No se pudo anular la venta.');
+    }
+  };
+
+  // ------------ render ------------
+  return (
+    <>
+      <NavbarStaff />
+      <section className="relative w-full min-h-screen bg-white">
+        <div className="min-h-screen bg-gradient-to-b from-[#1b1b2f] via-[#3b1f3f] to-[#b53a1d]">
+          <ParticlesBackground />
+          <ButtonBack />
+
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-10">
+            {/* Título + acción rápida */}
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <motion.h1
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="text-3xl sm:text-4xl titulo uppercase font-bold text-white mb-2 drop-shadow-md"
+                >
+                  Historial de Ventas
+                </motion.h1>
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                  className="text-sm sm:text-base text-gray-200/80 max-w-2xl"
+                >
+                  Consultá tus ventas, filtrá por cliente, fechas, tipo y
+                  estado. Abrí el detalle para ver ítems, cliente y vendedor.
+                </motion.p>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+            >
+              <div className="bg-white/90 backdrop-blur-xl rounded-2xl p-4 border border-white/20 shadow-md flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
+                  <FaFileInvoiceDollar className="text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">
+                    Ventas (página)
+                  </p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {kpis.count}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white/90 backdrop-blur-xl rounded-2xl p-4 border border-white/20 shadow-md flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <FaMoneyBillWave className="text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">
+                    Total neto (página)
+                  </p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {moneyAR(kpis.total)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white/90 backdrop-blur-xl rounded-2xl p-4 border border-white/20 shadow-md flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <FaExclamationTriangle className="text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">
+                    Ventas fiado
+                  </p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {kpis.fiadas}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white/90 backdrop-blur-xl rounded-2xl p-4 border border-white/20 shadow-md flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-sky-100 flex items-center justify-center">
+                  <FaMoneyBillWave className="text-sky-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase tracking-wide">
+                    Ventas contado
+                  </p>
+                  <p className="text-xl font-bold text-gray-900">
+                    {kpis.contado}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Filtros */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.2 }}
+              className="bg-white/95 backdrop-blur-xl rounded-2xl p-4 sm:p-5 border border-white/20 shadow-md mb-6"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                {/* q */}
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Buscar (cliente, documento, email)
+                  </label>
+                  <div className="relative">
+                    <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+                    <input
+                      type="text"
+                      name="q"
+                      value={filtros.q}
+                      onChange={handleFiltroChange}
+                      placeholder="Ej: Benjamín, 43849..., correo@..."
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* tipo */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Tipo
+                  </label>
+                  <select
+                    name="tipo"
+                    value={filtros.tipo}
+                    onChange={handleFiltroChange}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm
+                               focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                  >
+                    <option value="">Todos</option>
+                    <option value="contado">Contado</option>
+                    <option value="fiado">Fiado</option>
+                    <option value="a_cuenta">A cuenta</option>
+                  </select>
+                </div>
+
+                {/* estado */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Estado
+                  </label>
+                  <select
+                    name="estado"
+                    value={filtros.estado}
+                    onChange={handleFiltroChange}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm
+                               focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                  >
+                    <option value="">Todos</option>
+                    <option value="confirmada">Confirmada</option>
+                    <option value="anulada">Anulada</option>
+                  </select>
+                </div>
+
+                {/* fechas */}
+              </div>
+              <div className="md:col-span-1 flex gap-2 mt-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Desde
+                  </label>
+                  <input
+                    type="date"
+                    name="desde"
+                    value={filtros.desde}
+                    onChange={handleFiltroChange}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Hasta
+                  </label>
+                  <input
+                    type="date"
+                    name="hasta"
+                    value={filtros.hasta}
+                    onChange={handleFiltroChange}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={handleLimpiar}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-gray-200 text-xs sm:text-sm text-gray-700 hover:bg-gray-100 transition"
+                >
+                  <FaTimes className="text-xs" />
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBuscar}
+                  className="inline-flex items-center gap-1 px-4 py-1.5 rounded-xl bg-orange-500 text-xs sm:text-sm text-white font-semibold hover:bg-orange-600 transition shadow"
+                >
+                  <FaSearch className="text-xs" />
+                  Buscar
+                </button>
+              </div>
+            </motion.div>
+
+            {/* Tabla */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.25 }}
+              className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/20 shadow-lg overflow-hidden"
+            >
+              {loading && (
+                <div className="p-4 text-sm text-gray-600">
+                  Cargando ventas...
+                </div>
+              )}
+              {error && !loading && (
+                <div className="p-4 text-sm text-rose-600">{error}</div>
+              )}
+
+              {!loading && !error && (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50/90 border-b border-gray-200">
+                        <tr>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            ID
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            Fecha
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            Cliente
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            Vendedor
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            Tipo
+                          </th>
+                          <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                            Estado
+                          </th>
+                          <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                            Total neto
+                          </th>
+                          <th className="px-4 py-2 text-center font-semibold text-gray-600">
+                            Acciones
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ventas.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="px-4 py-6 text-center text-gray-500"
+                            >
+                              No hay ventas para los filtros seleccionados.
+                            </td>
+                          </tr>
+                        )}
+
+                        {ventas.map((v) => (
+                          <tr
+                            key={v.id}
+                            className="border-b border-gray-100 hover:bg-orange-50/40 transition cursor-pointer"
+                            onClick={() => abrirDetalle(v)}
+                          >
+                            <td className="px-4 py-2 text-gray-700">#{v.id}</td>
+
+                            <td className="px-4 py-2 text-gray-700">
+                              {fmtFecha(v.fecha)}
+                            </td>
+
+                            {/* === Cliente (nombre + doc en segunda línea) === */}
+                            <td className="px-4 py-2 text-gray-800">
+                              <div className="flex items-center gap-2">
+                                <FaUser className="text-gray-400 text-xs" />
+                                <div className="flex flex-col leading-tight">
+                                  <span className="font-medium">
+                                    {v.cliente?.nombre || '—'}
+                                  </span>
+                                  {v.cliente?.documento && (
+                                    <span className="text-[11px] text-gray-500">
+                                      {v.cliente.documento}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* === Vendedor (solo en su columna) === */}
+                            <td className="px-4 py-2 text-gray-800">
+                              <div className="flex items-center gap-2">
+                                <FaUserTie className="text-gray-400 text-xs" />
+                                <span className="font-medium">
+                                  {v.vendedor?.nombre || '—'}
+                                </span>
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                  badgeTipoClasses[v.tipo] ||
+                                  'bg-gray-100 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {v.tipo}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                  badgeEstadoClasses[v.estado] ||
+                                  'bg-gray-100 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {v.estado}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(v.total_neto || 0)}
+                            </td>
+
+                            <td
+                              className="px-4 py-2 text-center"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="inline-flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => abrirDetalle(v)}
+                                  className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition"
+                                >
+                                  Ver
+                                </button>
+                                {v.estado !== 'anulada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAnular(v)}
+                                    className="text-xs px-2.5 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition"
+                                  >
+                                    Anular
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Paginación */}
+                  {meta && meta.totalPages > 1 && (
+                    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-xs sm:text-sm text-gray-600">
+                      <div>
+                        Página {meta.page} de {meta.totalPages} — {meta.total}{' '}
+                        ventas
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handlePageChange(-1)}
+                          disabled={!meta.hasPrev}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition"
+                        >
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePageChange(1)}
+                          disabled={!meta.hasNext}
+                          className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 transition"
+                        >
+                          Siguiente
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Drawer de detalle */}
+        <AnimatePresence>
+          {detalleOpen && (
+            <motion.div
+              className="fixed inset-0 z-50 flex justify-end"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="flex-1 bg-black/50" onClick={cerrarDetalle} />
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+                className="w-full max-w-md sm:max-w-lg h-full bg-[#111827] text-white shadow-2xl border-l border-white/10 flex flex-col"
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+                  <div>
+                    <p className="text-xs uppercase text-gray-400 tracking-wide">
+                      Detalle de venta
+                    </p>
+                    <p className="text-lg font-semibold">
+                      Venta #{detalle?.id ?? '—'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={cerrarDetalle}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition"
+                  >
+                    <FaTimes className="text-sm" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  {detalleLoading && (
+                    <p className="text-sm text-gray-300">Cargando detalle...</p>
+                  )}
+
+                  {!detalleLoading && detalle && (
+                    <>
+                      {/* Cabecera */}
+                      <div className="bg-white/5 rounded-2xl p-4 border border-white/10 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Fecha</span>
+                          <span className="text-sm font-medium">
+                            {fmtFecha(detalle.fecha)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Tipo</span>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                              badgeTipoClasses[detalle.tipo] ||
+                              'bg-gray-100 text-gray-700 border-gray-200'
+                            }`}
+                          >
+                            {detalle.tipo}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-300">Estado</span>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                              badgeEstadoClasses[detalle.estado] ||
+                              'bg-gray-100 text-gray-700 border-gray-200'
+                            }`}
+                          >
+                            {detalle.estado}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-white/10 mt-2">
+                          <span className="text-sm text-gray-300">
+                            Total neto
+                          </span>
+                          <span className="text-lg font-bold text-emerald-300">
+                            {moneyAR(detalle.total_neto || 0)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cliente */}
+                      <div className="bg-white/5 rounded-2xl p-4 border border-white/10 space-y-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FaUser className="text-gray-300" />
+                          <span className="text-sm font-semibold">Cliente</span>
+                        </div>
+                        <p className="text-sm">
+                          {detalle.cliente?.nombre || '—'}
+                        </p>
+                        {detalle.cliente?.documento && (
+                          <p className="text-xs text-gray-300">
+                            Doc: {detalle.cliente.documento}
+                          </p>
+                        )}
+                        {detalle.cliente?.telefono && (
+                          <p className="text-xs text-gray-300">
+                            Tel: {detalle.cliente.telefono}
+                          </p>
+                        )}
+                        {detalle.cliente?.email && (
+                          <p className="text-xs text-gray-300">
+                            Email: {detalle.cliente.email}
+                          </p>
+                        )}
+                        {detalle.cliente?.barrio?.localidad?.ciudad && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            {detalle.cliente.barrio.localidad.ciudad.nombre} ·{' '}
+                            {detalle.cliente.barrio.nombre}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Vendedor */}
+                      <div className="bg-white/5 rounded-2xl p-4 border border-white/10 space-y-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FaUserTie className="text-gray-300" />
+                          <span className="text-sm font-semibold">
+                            Vendedor
+                          </span>
+                        </div>
+                        <p className="text-sm">
+                          {detalle.vendedor?.nombre || '—'}
+                        </p>
+                        {detalle.vendedor?.telefono && (
+                          <p className="text-xs text-gray-300">
+                            Tel: {detalle.vendedor.telefono}
+                          </p>
+                        )}
+                        {detalle.vendedor?.email && (
+                          <p className="text-xs text-gray-300">
+                            Email: {detalle.vendedor.email}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Ítems */}
+                      <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                        <p className="text-sm font-semibold mb-3">
+                          Ítems de la venta
+                        </p>
+                        {(!detalle.items || detalle.items.length === 0) && (
+                          <p className="text-xs text-gray-300">
+                            No hay ítems registrados para esta venta.
+                          </p>
+                        )}
+                        {detalle.items && detalle.items.length > 0 && (
+                          <div className="space-y-2 text-xs">
+                            {detalle.items.map((it) => (
+                              <div
+                                key={it.id}
+                                className="flex justify-between gap-2 border-b border-white/10 pb-1.5 last:border-0 last:pb-0"
+                              >
+                                <div className="flex-1">
+                                  <p className="font-medium">
+                                    {it.producto?.nombre
+                                      ? `${it.producto.nombre} ${
+                                          it.producto.codigo_sku
+                                            ? `(${it.producto.codigo_sku})`
+                                            : ''
+                                        }`
+                                      : `Producto #${it.producto_id}`}
+                                  </p>
+                                  <p className="text-gray-400">
+                                    Cant: {it.cantidad} · PU:{' '}
+                                    {moneyAR(it.precio_unit)}
+                                  </p>
+                                </div>
+                                <div className="text-right font-semibold">
+                                  {moneyAR(it.subtotal)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Observaciones */}
+                      {detalle.observaciones && (
+                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                          <p className="text-sm font-semibold mb-1">
+                            Observaciones
+                          </p>
+                          <p className="text-xs text-gray-200">
+                            {detalle.observaciones}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
+    </>
+  );
+};
+
+export default VentasHistorialPage;

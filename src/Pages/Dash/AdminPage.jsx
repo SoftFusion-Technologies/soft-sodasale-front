@@ -42,7 +42,7 @@ const AdminPage = () => {
                 <button className="btnstaff">geografía</button>
               </Link>
             </motion.div>
-              <motion.div
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -62,6 +62,17 @@ const AdminPage = () => {
               {' '}
               <Link to="/dashboard/clientes">
                 <button className="btnstaff">clientes</button>
+              </Link>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="bg-white w-[250px] h-[100px] text-[20px] lg:w-[400px] lg:h-[150px] lg:text-[30px] mx-auto flex justify-center items-center rounded-tr-xl rounded-bl-xl"
+            >
+              {' '}
+              <Link to="/dashboard/ventas">
+                <button className="btnstaff">ventas</button>
               </Link>
             </motion.div>
             <motion.div

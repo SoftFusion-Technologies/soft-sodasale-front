@@ -40,6 +40,9 @@ import BarriosCards from './Pages/Geografia/BarriosCards';
 import AdminPageVendedores from './Pages/Vendedores/AdminPageVendedores';
 import VendedoresCards from './Pages/Vendedores/VendedoresCards';
 import VendedorBarriosCards from './Pages/Vendedores/VendedorBarriosCards';
+import ClientesCards from './Pages/Clientes/ClientesCards';
+import AdminPageVentas from './Pages/Ventas/AdminPageVentas';
+import VentasHistorialPage from './Pages/Ventas/VentasHistorialPage';
 function AppContent() {
   return (
     <>
@@ -144,6 +147,33 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <VendedorBarriosCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/clientes"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <ClientesCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/ventas"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <AdminPageVentas />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/ventas/ventas"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VentasHistorialPage />{' '}
               </ProtectedRoute>
             }
           />
