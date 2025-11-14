@@ -43,6 +43,7 @@ import VendedorBarriosCards from './Pages/Vendedores/VendedorBarriosCards';
 import ClientesCards from './Pages/Clientes/ClientesCards';
 import AdminPageVentas from './Pages/Ventas/AdminPageVentas';
 import VentasHistorialPage from './Pages/Ventas/VentasHistorialPage';
+import VentasDeudasPage from './Pages/Ventas/VentasDeudasPage';
 function AppContent() {
   return (
     <>
@@ -174,6 +175,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <VentasHistorialPage />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/ventas/deudas"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VentasDeudasPage />{' '}
               </ProtectedRoute>
             }
           />
