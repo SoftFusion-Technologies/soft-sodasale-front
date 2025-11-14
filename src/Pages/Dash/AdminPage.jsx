@@ -82,7 +82,7 @@ const AdminPage = () => {
               className="bg-white w-[250px] h-[100px] text-[20px] lg:w-[400px] lg:h-[150px] lg:text-[30px] mx-auto flex justify-center items-center rounded-tr-xl rounded-bl-xl"
             >
               {' '}
-              <Link to="/dashboard/clientes">
+              <Link to="/dashboard/ventas/deudas">
                 <button className="btnstaff">Gestión de Deudas</button>
               </Link>
             </motion.div>

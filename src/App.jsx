@@ -44,6 +44,7 @@ import ClientesCards from './Pages/Clientes/ClientesCards';
 import AdminPageVentas from './Pages/Ventas/AdminPageVentas';
 import VentasHistorialPage from './Pages/Ventas/VentasHistorialPage';
 import VentasDeudasPage from './Pages/Ventas/VentasDeudasPage';
+import VentasReportesPage from './Pages/Ventas/VentasReportesPage';
 function AppContent() {
   return (
     <>
@@ -184,6 +185,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <VentasDeudasPage />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/ventas/reportes"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VentasReportesPage />{' '}
               </ProtectedRoute>
             }
           />
