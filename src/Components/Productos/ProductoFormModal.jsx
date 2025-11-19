@@ -55,6 +55,7 @@ export default function ProductoFormModal({
     unidad_medida: 'u',
     contenido: '',
     barra_ean13: '',
+    pre_prod: '',
     iva_porcentaje: 21,
     estado: 'activo', // activo | inactivo
     notas: ''
@@ -74,6 +75,7 @@ export default function ProductoFormModal({
         unidad_medida: initial?.unidad_medida ?? 'u',
         contenido: initial?.contenido ?? '',
         barra_ean13: initial?.barra_ean13 ?? '',
+        pre_prod: initial?.pre_prod ?? '',
         iva_porcentaje: initial?.iva_porcentaje ?? 21,
         estado: initial?.estado ?? 'activo',
         notas: initial?.notas ?? ''
@@ -128,6 +130,9 @@ export default function ProductoFormModal({
     if (form.barra_ean13 && !/^[0-9]{8,13}$/.test(String(form.barra_ean13))) {
       e.barra_ean13 = 'EAN debe ser numérico (8 a 13 dígitos)';
     }
+    if (form.pre_prod && Number(form.pre_prod) < 0) {
+      e.pre_prod = 'El precio no puede ser negativo';
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -144,6 +149,10 @@ export default function ProductoFormModal({
       unidad_medida: form.unidad_medida || 'u',
       contenido: form.contenido === '' ? null : Number(form.contenido),
       barra_ean13: form.barra_ean13?.trim() || null,
+      pre_prod:
+        form.pre_prod === ''
+          ? null
+          : Math.round(Number(form.pre_prod) * 100) / 100,
       iva_porcentaje: Number(form.iva_porcentaje) || 21,
       estado: form.estado,
       notas: form.notas?.trim() || null
@@ -394,7 +403,11 @@ export default function ProductoFormModal({
                                  focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
                     >
                       {UM_OPTS.map((o) => (
-                        <option className='text-black' key={o.value} value={o.value}>
+                        <option
+                          className="text-black"
+                          key={o.value}
+                          value={o.value}
+                        >
                           {o.label}
                         </option>
                       ))}
@@ -423,6 +436,26 @@ export default function ProductoFormModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <motion.div variants={fieldV}>
                     <label className="flex items-center gap-2 text-sm font-medium text-gray-200 mb-2">
+                      PRECIO PRODUCTO
+                    </label>
+                    <input
+                      name="pre_prod"
+                      type="number"
+                      step="0.01"
+                      value={form.pre_prod}
+                      onChange={handle}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                      placeholder="ingrese el precio"
+                    />
+                    {errors.pre_prod && (
+                      <p className="mt-1 text-sm text-rose-300">
+                        {errors.pre_prod}
+                      </p>
+                    )}
+                  </motion.div>
+                  <motion.div variants={fieldV}>
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-200 mb-2">
                       <Percent className="h-4 w-4 text-gray-400" />
                       IVA
                     </label>
@@ -444,24 +477,24 @@ export default function ProductoFormModal({
                       </p>
                     )}
                   </motion.div>
-
-                  <motion.div variants={fieldV}>
-                    <label className="flex items-center gap-2 text-sm font-medium text-gray-200 mb-2">
-                      <Power className="h-4 w-4 text-gray-400" />
-                      Estado
-                    </label>
-                    <select
-                      name="estado"
-                      value={form.estado}
-                      onChange={handle}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-black
-                                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
-                    >
-                      <option value="activo">Activo</option>
-                      <option value="inactivo">Inactivo</option>
-                    </select>
-                  </motion.div>
                 </div>
+
+                <motion.div variants={fieldV}>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-200 mb-2">
+                    <Power className="h-4 w-4 text-gray-400" />
+                    Estado
+                  </label>
+                  <select
+                    name="estado"
+                    value={form.estado}
+                    onChange={handle}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-black
+                                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                  </select>
+                </motion.div>
 
                 {/* Notas */}
                 <motion.div variants={fieldV}>

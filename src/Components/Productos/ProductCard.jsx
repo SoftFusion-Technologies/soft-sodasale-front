@@ -12,10 +12,11 @@ import {
   FaCubes,
   FaPercent,
   FaRuler,
-  FaTags
+  FaTags,
+  FaMoneyBill
 } from 'react-icons/fa';
 import DetailViewModal from '../Common/DetailViewModal';
-
+import moneyAR from '../../utils/money';
 const StatusPill = ({ active }) => (
   <span
     className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border transition-colors
@@ -123,6 +124,11 @@ export default function ProductCard({
             },
             { label: 'UM / Contenido', value: umContenido, icon: <FaRuler /> },
             {
+              label: 'PRECIO DEL PRODUCTO',
+              value: moneyAR(p?.pre_prod),
+              icon: <FaMoneyBill />
+            },
+            {
               label: 'IVA (%)',
               value: p?.iva_porcentaje ?? '—',
               icon: <FaPercent />
@@ -220,6 +226,12 @@ export default function ProductCard({
                 <span className="inline-flex items-center gap-1">
                   <FaRuler className="opacity-70" />
                   {umContenido}
+                </span>
+              </Field>
+              <Field label="PRECIO PRODUCTO">
+                <span className="inline-flex items-center gap-1">
+                  <FaMoneyBill className="opacity-70" />
+                  {item?.pre_prod != null ? moneyAR(item?.pre_prod) : '—'}
                 </span>
               </Field>
               <Field label="IVA (%)">
