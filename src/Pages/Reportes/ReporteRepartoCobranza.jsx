@@ -40,25 +40,6 @@ import { useAuth } from '../../AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-// (Reservado por si luego usás zonas lógicas extra)
-const ZONAS_PREDEFINIDAS = [
-  {
-    id: 'all',
-    label: 'Todas las zonas',
-    barrioIds: []
-  },
-  {
-    id: 'zona_norte',
-    label: 'Zona Norte (ej. Barrio 1,2,3)',
-    barrioIds: [1, 2, 3]
-  },
-  {
-    id: 'zona_sur',
-    label: 'Zona Sur (ej. Barrio 4,5)',
-    barrioIds: [4, 5]
-  }
-];
-
 const moneyAR = (n) =>
   (Number(n) || 0).toLocaleString('es-AR', {
     style: 'currency',
@@ -142,22 +123,12 @@ export default function ReporteRepartoCobranza() {
     fetchRepartos();
   }, [API_URL, authToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Planeo de reparto:
-  // planeo[clienteId] = {
-  //   productos: { [productoId]: { selected, cantidad } },
-  //   observacion: string
-  // }
   const [planeo, setPlaneo] = useState({});
 
   // Buscador + paginación
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(4);
-
-  const repartoSeleccionado = useMemo(
-    () => repartos.find((r) => String(r.id) === String(repartoId)) || null,
-    [repartos, repartoId]
-  );
 
   const fetchReporte = async () => {
     try {
@@ -201,7 +172,6 @@ export default function ReporteRepartoCobranza() {
   // Carga inicial
   useEffect(() => {
     fetchReporte();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Si cambia el reporte o el término de búsqueda, volvemos a la página 1
@@ -768,6 +738,14 @@ export default function ReporteRepartoCobranza() {
                                   {cliente.email && (
                                     <p className="text-[11px] text-amber-100/70">
                                       Email: {cliente.email}
+                                    </p>
+                                  )}
+                                  {cliente.direccion_calle && (
+                                    <p className="text-[11px] text-amber-100/70">
+                                      Calle: {cliente.direccion_calle} - Nro:{' '}
+                                      {cliente.direccion_numero} - Piso/Dpto:{' '}
+                                      {cliente.direccion_piso_dpto} -
+                                      Referencia: {cliente.referencia}
                                     </p>
                                   )}
                                 </div>

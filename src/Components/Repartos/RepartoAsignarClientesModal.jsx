@@ -262,7 +262,6 @@ export default function RepartoAsignarClientesModal({
       text: `¿Quitar a "${repCli?.cliente?.nombre}" del reparto?`,
       confirmText: 'Sí, quitar'
     });
-    if (!res?.isConfirmed) return;
 
     try {
       await deleteRepartoCliente(repCli.id);
