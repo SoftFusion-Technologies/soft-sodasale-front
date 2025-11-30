@@ -219,15 +219,16 @@ const AdminPage = () => {
               />
 
               <DashboardTile
-                title="Cobranzas"
-                description="Cobrar fiado a clientes."
+                title="Gestión de Cobranzas"
+                description="Consultá deudas de fiado, registrá cobranzas y mantené la cuenta corriente al día."
                 to="/dashboard/cobranzas"
                 icon={BanknoteArrowUp}
                 delay={0.26}
               />
+
               <DashboardTile
                 title="Reporte de Repartos"
-                description="Genera el PDF del reparto correspondiente."
+                description="Generá y descargá el PDF del reparto diario para organizar entregas y cobranzas."
                 to="/dashboard/generacion-informes"
                 icon={FileText}
                 delay={0.28}
