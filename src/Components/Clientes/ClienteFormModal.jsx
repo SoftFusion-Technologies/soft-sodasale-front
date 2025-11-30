@@ -198,9 +198,8 @@ export default function ClienteFormModal({
   // ------- Reglas de validación mínimas -------
   const canSave = useMemo(() => {
     const nombreOK = form.nombre.trim().length > 1;
-    const barrioOK = String(form.barrio_id).trim() !== '';
-    return nombreOK && barrioOK;
-  }, [form.nombre, form.barrio_id]);
+    return nombreOK;
+  }, [form.nombre]);
 
   // ------- Handler genérico -------
   const handle = (e) => {
@@ -233,7 +232,7 @@ export default function ClienteFormModal({
         email: form.email?.trim() || null,
         estado: form.estado,
 
-        barrio_id: Number(form.barrio_id), // el DDL exige barrio_id
+        barrio_id: toNumOrNull(form.barrio_id),
         direccion_calle: toNull(form.direccion_calle?.trim()),
         direccion_numero: toNull(form.direccion_numero?.trim()),
         direccion_piso_dpto: toNull(form.direccion_piso_dpto?.trim()),
@@ -244,6 +243,7 @@ export default function ClienteFormModal({
 
         vendedor_preferido_id: toNumOrNull(form.vendedor_preferido_id)
       });
+
       onClose();
     } finally {
       setSaving(false);
@@ -441,7 +441,7 @@ export default function ClienteFormModal({
                   {/* Barrio (filtrado por localidad) */}
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Barrio <span className="text-cyan-300">*</span>
+                      Barrio
                     </label>
                     <select
                       name="barrio_id"
