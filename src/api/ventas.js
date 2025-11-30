@@ -144,6 +144,10 @@ export async function replaceVentaItems(ventaId, payload) {
   return data; // { data: items[] }
 }
 
+// POST /ventas/reparto-masiva
+export async function  createVentasRepartoMasiva(payload) {
+  http.post('/ventas/reparto-masiva', payload).then((r) => r.data);
+}
 export default {
   listVentas,
   getVenta,
@@ -156,5 +160,5 @@ export default {
   addVentaItems,
   updateVentaItem,
   deleteVentaItem,
-  replaceVentaItems
+  createVentasRepartoMasiva
 };

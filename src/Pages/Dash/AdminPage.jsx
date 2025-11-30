@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import NavbarStaff from './NavbarStaff';
 import '../../Styles/staff/dashboard.css';
@@ -13,8 +13,14 @@ import {
   Users,
   UserCircle2,
   ShoppingBag,
-  AlertTriangle
+  AlertTriangle,
+  BanknoteArrowUp,
+  FileText
 } from 'lucide-react';
+
+import DeudoresResumenModal from '../../Components/Ventas/DeudoresResumenModal';
+import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // ---------- Tile genérico reuso estilo HammerX ----------
 const DashboardTile = ({ title, description, to, icon: Icon, delay = 0 }) => {
@@ -64,14 +70,35 @@ const AdminPage = () => {
 
   const nivel = String(userLevel || '').toLowerCase();
   const nivelLabel =
-    nivel === 'admin'
+    nivel === 'socio'
       ? 'Administrador'
-      : nivel === 'administrador'
-      ? 'Administrador'
-      : nivel === 'gerente'
-      ? 'Gerente'
-      : 'Staff';
+      : nivel === 'administrativo'
+      ? 'Administrativo'
+      : nivel === 'vendedor'
+      ? 'Vendedor'
+      : 'Contador';
 
+  const { authToken } = useAuth();
+  const [showDeudoresModal, setShowDeudoresModal] = useState(false);
+  const [deudores, setDeudores] = useState([]);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const resp = await axios.get(`${API_URL}/ventas/deudores-fiado`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          }
+        });
+        setDeudores(resp.data || []);
+        setShowDeudoresModal(true);
+      } catch (e) {
+        console.error('Error cargando deudores fiado:', e);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [authToken]);
   // Si todavía no cargó el nivel, evitamos parpadeos feos
   if (!userLevel) {
     return (
@@ -119,7 +146,8 @@ const AdminPage = () => {
                   transition={{ duration: 0.55, delay: 0.05 }}
                   className="mt-1 text-sm text-slate-200/80 max-w-xl"
                 >
-                  Elegí un módulo para administrar productos, clientes, geografía, etc.
+                  Elegí un módulo para administrar productos, clientes,
+                  geografía, etc.
                 </motion.p>
               </div>
 
@@ -189,10 +217,30 @@ const AdminPage = () => {
                 icon={AlertTriangle}
                 delay={0.22}
               />
+
+              <DashboardTile
+                title="Cobranzas"
+                description="Cobrar fiado a clientes."
+                to="/dashboard/cobranzas"
+                icon={BanknoteArrowUp}
+                delay={0.26}
+              />
+              <DashboardTile
+                title="Reporte de Repartos"
+                description="Genera el PDF del reparto correspondiente."
+                to="/dashboard/generacion-informes"
+                icon={FileText}
+                delay={0.28}
+              />
             </div>
           </div>
         </div>
       </section>
+      <DeudoresResumenModal
+        open={showDeudoresModal && deudores.length > 0}
+        onClose={() => setShowDeudoresModal(false)}
+        deudores={deudores}
+      />
     </>
   );
 };

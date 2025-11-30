@@ -11,6 +11,7 @@ import ButtonBack from '../../Components/ButtonBack';
 
 import { listVentas, getVenta, anularVenta } from '../../api/ventas';
 import { moneyAR } from '../../utils/money';
+import { useLocation } from 'react-router-dom';
 
 import {
   FaSearch,
@@ -50,6 +51,7 @@ const VentasHistorialPage = () => {
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const location = useLocation();
 
   // filtros
   const [filtros, setFiltros] = useState({
@@ -157,6 +159,15 @@ const VentasHistorialPage = () => {
     }
   };
 
+  const ventaIdDesdeState = location.state?.ventaIdDetalle;
+
+  useEffect(() => {
+    if (ventaIdDesdeState) {
+      abrirDetallePorId(ventaIdDesdeState);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ventaIdDesdeState]);
+
   const cerrarDetalle = () => {
     setDetalleOpen(false);
     setDetalle(null);
@@ -179,6 +190,23 @@ const VentasHistorialPage = () => {
     } catch (e) {
       console.error('No se pudo anular la venta:', e);
       alert('No se pudo anular la venta.');
+    }
+  };
+
+  const abrirDetallePorId = async (ventaId) => {
+    if (!ventaId) return;
+
+    setDetalleOpen(true);
+    setDetalleLoading(true);
+
+    try {
+      const data = await getVenta(ventaId);
+      setDetalle(data);
+    } catch (e) {
+      console.error('Error cargando detalle de venta:', e);
+      //  meter un Sweet
+    } finally {
+      setDetalleLoading(false);
     }
   };
 
