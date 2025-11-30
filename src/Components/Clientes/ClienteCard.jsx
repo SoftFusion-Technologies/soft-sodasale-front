@@ -74,6 +74,34 @@ function composeZona(item) {
   return [barrio, loc, ciudad].filter(Boolean).join(' • ') || null;
 }
 
+function composeRepartos(item) {
+  const asignaciones = item?.asignaciones_repartos || [];
+
+  if (!Array.isArray(asignaciones) || asignaciones.length === 0) {
+    return null;
+  }
+
+  return asignaciones
+    .map((rc) => {
+      const rep = rc?.reparto;
+      const nombre = rep?.nombre || `Reparto #${rc?.reparto_id}`;
+      const rangoMin = rep?.rango_min;
+      const rangoMax = rep?.rango_max;
+      const nro = rc?.numero_rango;
+
+      const rango =
+        rangoMin != null && rangoMax != null
+          ? `${rangoMin} – ${rangoMax}`
+          : null;
+
+      if (rango && nro) return `${nombre} • Nº ${nro} (rango ${rango})`;
+      if (rango) return `${nombre} • rango ${rango}`;
+      if (nro) return `${nombre} • Nº ${nro}`;
+      return nombre;
+    })
+    .join(' | ');
+}
+
 export default function ClienteCard({
   item,
   onEdit,
@@ -146,7 +174,18 @@ export default function ClienteCard({
               label: 'Barrio / Localidad / Ciudad',
               icon: <FaMapMarkerAlt />,
               value: composeZona(v)
-            }           
+            }
+          ]
+        },
+        {
+          title: 'Reparto y rango',
+          cols: 1,
+          rows: [
+            {
+              label: 'Asignaciones de reparto',
+              icon: <FaGlobeAmericas />,
+              value: composeRepartos(v) || 'Sin reparto asignado - Asigna desde Geografia/Repartos'
+            }
           ]
         },
         {
@@ -161,6 +200,7 @@ export default function ClienteCard({
           ]
         }
       ],
+
       createdAt: (d) => d?.created_at,
       updatedAt: (d) => d?.updated_at
     };
@@ -235,10 +275,16 @@ export default function ClienteCard({
               <Field label="Teléfono">{item?.telefono}</Field>
               <Field label="Email">{item?.email}</Field>
               <Field label="Vendedor preferido">{vendedorPref}</Field>
+
               <Field label="Barrio / Localidad / Ciudad">
                 {composeZona(item)}
               </Field>
               <Field label="Dirección">{composeDireccion(item)}</Field>
+
+              {/* NUEVO: Reparto / rango */}
+              <Field label="Reparto / Rango">
+                {composeRepartos(item) || 'Sin reparto asignado'}
+              </Field>
             </div>
 
             {/* Orden de acciones: Ver, Des/Activar, Editar, Eliminar */}

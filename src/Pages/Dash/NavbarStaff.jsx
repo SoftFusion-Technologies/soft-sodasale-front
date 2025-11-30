@@ -1,4 +1,4 @@
-// NavbarStaff.jsx — versión moderna “glass”
+// NavbarStaff.jsx — versión moderna “glass” refinada
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,19 +12,19 @@ const linksDef = [
     id: 1,
     href: 'dashboard',
     title: 'Dashboard',
-    roles: ['socio', 'empleado']
+    roles: ['socio', 'empleado', 'administrador', 'admin']
   },
   {
     id: 2,
     href: 'dashboard/usuarios',
     title: 'Usuarios',
-    roles: ['socio', 'administrador']
+    roles: ['socio', 'administrador', 'admin']
   },
   {
     id: 3,
     href: 'dashboard/locales',
     title: 'Locales',
-    roles: ['socio', 'administrador']
+    roles: ['socio', 'administrador', 'admin']
   }
 ];
 
@@ -33,22 +33,53 @@ const NavbarStaff = () => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
+  // Normalizamos rol
+  const currentRole = useMemo(
+    () =>
+      String(userLevel || '')
+        .trim()
+        .toLowerCase(),
+    [userLevel]
+  );
+
+  const nivelLabel =
+    currentRole === 'admin' || currentRole === 'administrador'
+      ? 'Administrador'
+      : currentRole === 'socio'
+      ? 'Socio'
+      : currentRole === 'empleado'
+      ? 'Empleado'
+      : currentRole || 'Staff';
+
   // Derivar nombre para saludo/avatar
   const displayUserName = useMemo(() => {
     if (nomyape) return nomyape.trim().split(' ')[0] || '';
     if (!userName) return '';
-    if (userName.includes('@'))
-      return userName.substring(0, userName.indexOf('@'));
+    if (userName.includes('@')) {
+      const beforeAt = userName.substring(0, userName.indexOf('@'));
+      if (beforeAt) return beforeAt;
+    }
     return userName.trim().split(' ')[0] || '';
   }, [userName, nomyape]);
 
   const userInitial = (displayUserName?.[0] || 'U').toUpperCase();
 
   // Navegación visible por rol
-  const filteredLinks = useMemo(
-    () => linksDef.filter((l) => l.roles.includes(userLevel)),
-    [userLevel]
-  );
+  const filteredLinks = useMemo(() => {
+    if (!currentRole) return linksDef; // fallback: mostrar todo si aún no hay rol
+    const lowerRole = currentRole.toLowerCase();
+
+    const links = linksDef.filter((l) =>
+      (l.roles || []).some((r) => r.toLowerCase() === lowerRole)
+    );
+
+    // si por algún motivo no matchea nada, mostramos al menos Dashboard
+    if (!links.length) {
+      return linksDef.filter((l) => l.href === 'dashboard');
+    }
+
+    return links;
+  }, [currentRole]);
 
   // Activo por ruta
   const isActive = (href) => pathname.startsWith(`/${href}`);
@@ -81,7 +112,7 @@ const NavbarStaff = () => {
         className="
           relative
           border-b border-white/10
-          bg-[rgba(12,14,36,0.5)] 
+          bg-[rgba(6,9,24,0.75)]
           backdrop-blur-xl
           supports-[backdrop-filter]:bg-white/5
           text-white
@@ -91,19 +122,27 @@ const NavbarStaff = () => {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* logo + marca */}
           <div className="flex items-center gap-3">
-            {/* <Link
-              to="/"
-              className="shrink-0 focus:outline-none focus:ring-2 focus:ring-pink-400 rounded-lg"
+            <Link
+              to="/dashboard"
+              className="shrink-0 focus:outline-none focus:ring-2 focus:ring-emerald-400 rounded-lg"
             >
-              <img
+              <motion.img
                 src={logoSueno}
                 alt="Sueño"
-                className="h-10 w-auto rounded-md shadow-sm ring-1 ring-white/10"
+                className="h-9 w-9 rounded-lg shadow-sm ring-1 ring-white/15 object-cover"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.25 }}
               />
-            </Link> */}
-            <span className="hidden sm:inline-block text-sm text-white/70 tracking-wide">
-              Panel Staff
-            </span>
+            </Link>
+            <div className="hidden sm:flex flex-col">
+              <span className="text-[11px] uppercase tracking-[0.22em] text-white/50">
+                Backoffice
+              </span>
+              <span className="text-sm font-semibold text-white/90">
+                Panel Administrativo
+              </span>
+            </div>
           </div>
 
           {/* links desktop */}
@@ -117,7 +156,8 @@ const NavbarStaff = () => {
                     className="
                       relative px-3 py-2 rounded-lg text-sm
                       transition
-                      hover:text-white/90 focus:outline-none focus:ring-2 focus:ring-pink-400
+                      hover:text-white/90
+                      focus:outline-none focus:ring-2 focus:ring-emerald-400
                     "
                     aria-current={active ? 'page' : undefined}
                   >
@@ -137,7 +177,7 @@ const NavbarStaff = () => {
                           transition={{
                             type: 'spring',
                             bounce: 0.25,
-                            duration: 0.5
+                            duration: 0.45
                           }}
                         />
                       )}
@@ -153,12 +193,12 @@ const NavbarStaff = () => {
             {/* <NotificationBell /> */}
             <button
               type="button"
-              className="relative inline-flex items-center justify-center h-9 w-9 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-pink-400"
+              className="relative inline-flex items-center justify-center h-9 w-9 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-emerald-400"
               title="Notificaciones"
             >
               <FiBell className="text-white/80" />
               {/* puntito opcional
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-pink-500" />
+              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-emerald-400" />
               */}
             </button>
 
@@ -169,8 +209,8 @@ const NavbarStaff = () => {
                 onClick={() => setUserMenuOpen((v) => !v)}
                 className="
                   group flex items-center gap-2 pl-1 pr-2 py-1
-                  rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10
-                  transition focus:outline-none focus:ring-2 focus:ring-pink-400
+                  rounded-xl bg-white/5 ring-1 ring-white/12 hover:bg-white/10
+                  transition focus:outline-none focus:ring-2 focus:ring-emerald-400
                 "
                 aria-haspopup="menu"
                 aria-expanded={userMenuOpen}
@@ -179,15 +219,20 @@ const NavbarStaff = () => {
                   aria-hidden
                   className="
                     grid place-items-center h-8 w-8 rounded-full
-                    bg-gradient-to-br from-pink-500 to-rose-600
-                    text-white font-bold text-sm ring-1 ring-white/20
+                    bg-gradient-to-br from-emerald-500 to-teal-500
+                    text-white font-bold text-sm ring-1 ring-white/25
                   "
                 >
                   {userInitial}
                 </span>
-                <span className="hidden md:block text-sm text-white/90">
-                  {displayUserName || 'Usuario'}
-                </span>
+                <div className="hidden md:flex flex-col items-start">
+                  <span className="text-sm text-white/90 leading-tight">
+                    {displayUserName || 'Usuario'}
+                  </span>
+                  <span className="text-[11px] text-emerald-200/80 leading-tight">
+                    {nivelLabel}
+                  </span>
+                </div>
                 <FiChevronDown className="text-white/70 group-hover:text-white transition" />
               </button>
 
@@ -199,26 +244,26 @@ const NavbarStaff = () => {
                     exit={{ opacity: 0, y: -6, scale: 0.98 }}
                     transition={{ duration: 0.16 }}
                     className="
-                      absolute right-0 mt-2 w-56
-                      rounded-2xl bg-[rgba(17,20,40,0.9)] backdrop-blur-xl
+                      absolute right-0 mt-2 w-60
+                      rounded-2xl bg-[rgba(9,12,28,0.96)] backdrop-blur-xl
                       border border-white/10 shadow-2xl p-2
                     "
                     role="menu"
                   >
                     <div className="px-3 py-2">
-                      <p className="text-xs text-white/50">Sesión</p>
+                      <p className="text-xs text-white/45">Sesión activa</p>
                       <p className="text-sm text-white font-medium">
                         {displayUserName || 'Usuario'}
                       </p>
                       <p className="text-[11px] text-white/40 capitalize">
-                        Rol: {userLevel || '—'}
+                        Rol: {nivelLabel}
                       </p>
                     </div>
                     <div className="my-2 h-px bg-white/10" />
                     <button
                       onClick={handleLogout}
                       className="
-                        w-full inline-flex items-center gap-2 px-3 py-2
+                        w-full inline-flex items-center gap-2 px-3 py-2.5
                         rounded-xl text-sm text-rose-100
                         hover:bg-rose-500/10 hover:text-white
                         transition
@@ -234,11 +279,17 @@ const NavbarStaff = () => {
           </div>
 
           {/* botón burger móvil */}
-          <div className="lg:hidden flex items-center">
+          <div className="lg:hidden flex items-center gap-2">
+            {/* mini avatar móvil */}
+            <div className="flex items-center gap-2">
+              <span className="grid place-items-center h-8 w-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white font-bold text-sm ring-1 ring-white/25">
+                {userInitial}
+              </span>
+            </div>
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-pink-400"
+              className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition focus:outline-none focus:ring-2 focus:ring-emerald-400"
               aria-label="Abrir menú"
             >
               <FiMenu className="text-white/85 text-xl" />
@@ -273,7 +324,7 @@ const NavbarStaff = () => {
               transition={{ type: 'spring', damping: 22, stiffness: 240 }}
               className="
                 fixed right-0 top-0 h-full w-[86%] max-w-sm
-                bg-[rgba(15,18,36,0.95)] backdrop-blur-xl
+                bg-[rgba(6,9,24,0.98)] backdrop-blur-xl
                 border-l border-white/10
                 p-4 z-50
                 flex flex-col
@@ -285,21 +336,21 @@ const NavbarStaff = () => {
                   <img
                     src={logoSueno}
                     alt="Sueño"
-                    className="h-9 w-9 rounded-md ring-1 ring-white/10"
+                    className="h-9 w-9 rounded-md ring-1 ring-white/10 object-cover"
                   />
                   <div>
                     <p className="text-white font-semibold leading-5">
                       {displayUserName || 'Usuario'}
                     </p>
                     <p className="text-white/50 text-xs capitalize">
-                      Rol: {userLevel || '—'}
+                      Rol: {nivelLabel}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-pink-400"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                   aria-label="Cerrar menú"
                 >
                   <FiX className="text-white/85 text-xl" />
@@ -333,7 +384,7 @@ const NavbarStaff = () => {
                 </ul>
               </div>
 
-              <div className="mt-auto pt-4 border-t border-white/10">
+              <div className="mt-auto pt-4 border-t border-white/10 space-y-3">
                 {/* <NotificationBell /> */}
                 <button
                   onClick={handleLogout}
@@ -343,8 +394,8 @@ const NavbarStaff = () => {
                     bg-gradient-to-r from-rose-500 to-pink-600
                     hover:from-rose-600 hover:to-pink-700
                     text-white font-semibold
-                    shadow-lg shadow-rose-900/20
-                    focus:outline-none focus:ring-2 focus:ring-pink-400
+                    shadow-lg shadow-rose-900/25
+                    focus:outline-none focus:ring-2 focus:ring-emerald-400
                   "
                 >
                   <FiLogOut className="text-white" />

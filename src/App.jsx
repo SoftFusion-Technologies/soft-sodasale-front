@@ -45,6 +45,8 @@ import AdminPageVentas from './Pages/Ventas/AdminPageVentas';
 import VentasHistorialPage from './Pages/Ventas/VentasHistorialPage';
 import VentasDeudasPage from './Pages/Ventas/VentasDeudasPage';
 import VentasReportesPage from './Pages/Ventas/VentasReportesPage';
+import AdminPageRepartos from './Pages/Repartos/AdminPageRepartos';
+import RepartosCards from './Pages/Repartos/RepartosCards'
 function AppContent() {
   return (
     <>
@@ -197,6 +199,24 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Ruta
+            path="/dashboard/geografia/repartos"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <RepartosCards />{' '}
+              </ProtectedRoute>
+            }
+          />
+          {/* <Ruta
+            path="/dashboard/geografia/repartos/listado"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <RepartosCards />{' '}
+              </ProtectedRoute>
+            }
+          /> */}
         </Rutas>
         <Footer></Footer>
       </div>

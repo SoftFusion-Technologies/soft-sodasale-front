@@ -25,8 +25,8 @@ export default function SearchableSelect({
   portalZIndex = 2000,
   menuPlacement = 'auto',
   getOptionSearchText = (o, getLabel) => getLabel(o) || '',
-  lockBodyScroll = false, // opcional
-  withBackdrop = true // opcional (solo en portal)
+  lockBodyScroll = false,
+  withBackdrop = true
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -39,7 +39,6 @@ export default function SearchableSelect({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isPositioned, setIsPositioned] = useState(false);
 
-  // Para no cerrar al scrollear: armamos cierre solo si es "tap" en backdrop
   const backdropTap = useRef({ x: 0, y: 0, armed: false });
 
   const listboxId = useRef(
@@ -106,17 +105,21 @@ export default function SearchableSelect({
     const top =
       want === 'bottom'
         ? Math.min(rect.bottom + 8, vh - 8)
-        : Math.max(8, rect.top - Math.min(maxHpx, rect.top) - 8);
+        : Math.max(8, rect.top - maxHpx - 8);
 
-    setMenuStyle({
+    // 👉 FIX: no pisamos visibility a 'hidden' si ya está en 'visible'
+    setMenuStyle((prev) => ({
+      ...prev,
       position: 'fixed',
       top,
       left,
       width,
       maxHeight: `${maxHpx}px`,
       zIndex: portalZIndex + 1,
-      visibility: 'hidden'
-    });
+      visibility: prev.visibility || 'hidden', // primera vez 'hidden', luego respetamos 'visible'
+      overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch'
+    }));
     setIsPositioned(true);
   }, [portal, menuPlacement, portalZIndex]);
 
@@ -137,7 +140,7 @@ export default function SearchableSelect({
     };
   }, [open, portal, computePosition]);
 
-  // ===== Foco → sin scroll jump =====
+  // ===== Foco (sin saltos de scroll) =====
   useEffect(() => {
     if (!open) return;
     const focusInput = () => {
@@ -148,7 +151,10 @@ export default function SearchableSelect({
           inputRef.current.focus();
         }
       }
-      setMenuStyle((s) => ({ ...s, visibility: 'visible' }));
+      if (portal) {
+        // aseguramos que quede visible al menos una vez
+        setMenuStyle((s) => ({ ...s, visibility: 'visible' }));
+      }
     };
     if (portal) {
       if (isPositioned) requestAnimationFrame(focusInput);
@@ -167,7 +173,6 @@ export default function SearchableSelect({
       return path.includes(node) || node.contains(e.target);
     };
 
-    // No-portal (o portal sin backdrop): cerrar en pointerdown fuera
     if (!portal || !withBackdrop) {
       const onDocPointerDown = (e) => {
         const root = rootRef.current;
@@ -182,7 +187,7 @@ export default function SearchableSelect({
     }
   }, [open, portal, withBackdrop]);
 
-  // ===== Teclado =====
+  // ===== Navegación por teclado =====
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -222,6 +227,20 @@ export default function SearchableSelect({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, filtered, activeIndex, onChange, getOptionValue]);
+
+  // 👉 Extra: auto-scroll al item activo al navegar con teclado
+  useEffect(() => {
+    if (!open) return;
+    if (activeIndex < 0) return;
+    if (!menuRef.current) return;
+
+    const list = menuRef.current.querySelector('ul[role="listbox"]');
+    if (!list) return;
+    const item = list.querySelector(`li[data-idx="${activeIndex}"]`);
+    if (item && item.scrollIntoView) {
+      item.scrollIntoView({ block: 'nearest' });
+    }
+  }, [activeIndex, open]);
 
   const renderHighlighted = (text, query) => {
     if (!query) return text;
@@ -277,19 +296,20 @@ export default function SearchableSelect({
   const MenuPanel = (
     <div
       ref={menuRef}
-      // Capturamos pointerdown para que no burbujee a document (no-portal)
       onPointerDownCapture={(e) => e.stopPropagation()}
       className={`mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-2xl flex flex-col ${
-        portal ? '' : 'absolute z-50 max-h-80'
-      } ${placement === 'top' && !portal ? 'bottom-full mb-2' : ''}`}
+        portal ? '' : 'absolute z-50'
+      } ${
+        !portal ? (placement === 'top' ? 'bottom-full mb-2' : 'max-h-80') : ''
+      }`}
       style={
         portal
-          ? {
-              ...menuStyle,
+          ? menuStyle
+          : {
+              maxHeight: dropdownMaxHeight,
               overflowY: 'auto',
               WebkitOverflowScrolling: 'touch'
             }
-          : { overflowY: 'auto' }
       }
       role="dialog"
       aria-modal="true"
@@ -332,7 +352,8 @@ export default function SearchableSelect({
               aria-selected={isSel}
               onMouseEnter={() => setActiveIndex(idx)}
               onMouseLeave={() => setActiveIndex(-1)}
-              onMouseDown={(e) => e.preventDefault()} // mantiene el foco en el input
+              // mantenemos preventDefault para no robar foco, pero el click sigue funcionando
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 onChange?.(id, opt);
                 setOpen(false);
@@ -383,14 +404,13 @@ export default function SearchableSelect({
   const Backdrop =
     withBackdrop && open ? (
       <div
-        // Cerramos SOLO si fue un tap (no drag/scroll)
         onPointerDown={(e) => {
           backdropTap.current = { x: e.clientX, y: e.clientY, armed: true };
         }}
         onPointerMove={(e) => {
           const dx = e.clientX - backdropTap.current.x;
           const dy = e.clientY - backdropTap.current.y;
-          if (dx * dx + dy * dy > 36) backdropTap.current.armed = false; // 6px umbral
+          if (dx * dx + dy * dy > 36) backdropTap.current.armed = false;
         }}
         onPointerUp={() => {
           if (backdropTap.current.armed) {
@@ -402,8 +422,8 @@ export default function SearchableSelect({
           position: 'fixed',
           inset: 0,
           zIndex: portalZIndex,
-          background: 'transparent',
-          touchAction: 'none' // evita que gestos de scroll "clicken"
+          background: 'transparent'
+          // ojo: saqué touchAction: 'none' para no interferir con gestos de scroll en algunos contextos
         }}
       />
     ) : null;
