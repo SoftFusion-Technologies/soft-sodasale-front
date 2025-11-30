@@ -46,9 +46,10 @@ import VentasHistorialPage from './Pages/Ventas/VentasHistorialPage';
 import VentasDeudasPage from './Pages/Ventas/VentasDeudasPage';
 import VentasReportesPage from './Pages/Ventas/VentasReportesPage';
 import AdminPageRepartos from './Pages/Repartos/AdminPageRepartos';
-import RepartosCards from './Pages/Repartos/RepartosCards'
+import RepartosCards from './Pages/Repartos/RepartosCards';
 
 import AdminPageCobranzas from './Pages/Cobranzas/AdminPageCobranzas';
+import ReporteRepartoCobranza from './Pages/Reportes/ReporteRepartoCobranza';
 function AppContent() {
   return (
     <>
@@ -225,6 +226,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <AdminPageCobranzas />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/generacion-informes"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <ReporteRepartoCobranza />{' '}
               </ProtectedRoute>
             }
           />
