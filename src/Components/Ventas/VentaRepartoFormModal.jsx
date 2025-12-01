@@ -76,6 +76,18 @@ export default function VentaRepartoFormModal({
     [clientes, clientesExcluidos]
   );
 
+  const [aCuentaPorCliente, setACuentaPorCliente] = useState({});
+
+  const handleACuentaChange = (clienteId, rawValue) => {
+    const str = String(rawValue ?? '').replace(',', '.');
+    const num = Number(str);
+
+    setACuentaPorCliente((prev) => ({
+      ...prev,
+      [clienteId]: Number.isFinite(num) && num >= 0 ? num : 0
+    }));
+  };
+
   const handleOcultarCliente = (clienteId) => {
     const idNum = Number(clienteId);
     setClientesExcluidos((prev) =>
@@ -284,6 +296,15 @@ export default function VentaRepartoFormModal({
     [subtotalesPorCliente]
   );
 
+  const totalGeneralConACuenta = useMemo(() => {
+    return (clientesVisibles || []).reduce((acc, cli) => {
+      const subtotalCli = subtotalesPorCliente[cli.id] ?? 0;
+      const aCuentaCli = Number(aCuentaPorCliente[cli.id] ?? 0);
+      const saldoCli = Math.max(0, subtotalCli - aCuentaCli);
+      return acc + saldoCli;
+    }, 0);
+  }, [clientesVisibles, subtotalesPorCliente, aCuentaPorCliente]);
+
   const ciudadNombre =
     repartoSelected?.ciudad?.nombre || repartoSelected?.ciudad_nombre || '—';
 
@@ -335,9 +356,15 @@ export default function VentaRepartoFormModal({
           precio_unit
         });
       }
+
       if (lineas.length > 0) {
+        const aCuentaRaw = Number(aCuentaPorCliente[cli.id] ?? 0);
+        const monto_a_cuenta =
+          Number.isFinite(aCuentaRaw) && aCuentaRaw > 0 ? aCuentaRaw : 0;
+
         items.push({
           cliente_id: cli.id,
+          monto_a_cuenta, //  NUEVO: se manda al backend
           lineas
         });
       }
@@ -353,11 +380,16 @@ export default function VentaRepartoFormModal({
     const payload = {
       reparto_id: repartoSelected.id,
       fecha: `${fecha}T00:00:00`,
-      tipo: tipoVenta, // contado | fiado | a_cuenta
+      tipo: tipoVenta, // contado | fiado | a_cuenta (para este caso, "fiado")
       vendedor_id: vendedorIdNum,
       observaciones: observaciones?.trim() || null,
       items
     };
+
+    console.log(
+      '[REPARTO-MASIVA] Payload enviado:',
+      JSON.stringify(payload, null, 2)
+    );
 
     try {
       setSaving(true);
@@ -687,65 +719,111 @@ export default function VentaRepartoFormModal({
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {clientesVisibles.map((cli) => (
-                            <div
-                              key={cli.id}
-                              className="rounded-xl border border-cyan-500/35 bg-slate-950/70 px-3 py-2"
-                            >
-                              <div className="flex items-center justify-between gap-2 mb-2">
-                                <span className="text-xs sm:text-sm font-semibold text-cyan-50 truncate">
-                                  {cli.nombre}
-                                </span>
-                                <span className="text-[11px] text-cyan-100/80">
-                                  Subtotal:{' '}
-                                  <span className="font-semibold text-emerald-300">
-                                    ${subtotalesPorCliente[cli.id]?.toFixed(2)}
-                                  </span>
-                                </span>
-                              </div>
+                          {clientesVisibles.map((cli) => {
+                            const subtotalCli =
+                              subtotalesPorCliente[cli.id] ?? 0;
+                            const aCuentaCli = Number(
+                              aCuentaPorCliente[cli.id] ?? 0
+                            );
+                            const saldoCli = Math.max(
+                              0,
+                              subtotalCli - aCuentaCli
+                            );
 
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                {productos.map((prod) => {
-                                  const key = `${cli.id}-${prod.id}`;
-                                  const value = cantidades[key] ?? '';
-                                  const precio = getPrecioVenta(prod);
-                                  return (
-                                    <div
-                                      key={prod.id}
-                                      className="rounded-lg border border-cyan-400/30 bg-slate-950/80 px-2.5 py-2 flex flex-col gap-1.5"
-                                    >
-                                      <div className="text-[11px] font-medium text-cyan-50 truncate">
-                                        {prod.nombre}
+                            return (
+                              <div
+                                key={cli.id}
+                                className="rounded-xl border border-cyan-500/35 bg-slate-950/70 px-3 py-2"
+                              >
+                                {/* Cabecera cliente + montos */}
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                                  <div>
+                                    <span className="text-xs sm:text-sm font-semibold text-cyan-50 truncate block">
+                                      {cli.nombre}
+                                    </span>
+                                    <span className="text-[11px] text-cyan-100/80 block">
+                                      Subtotal mercadería:{' '}
+                                      <span className="font-semibold text-emerald-300">
+                                        ${subtotalCli.toFixed(2)}
+                                      </span>
+                                    </span>
+                                  </div>
+
+                                  {/* Campo A cuenta */}
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[11px] text-teal-100/80">
+                                      A cuenta:
+                                    </span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={aCuentaCli || ''}
+                                      onChange={(e) =>
+                                        handleACuentaChange(
+                                          cli.id,
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-24 rounded-lg border border-teal-400/60 bg-slate-950/90 px-2 py-1 text-[11px] text-teal-50
+                       focus:outline-none focus:ring-1 focus:ring-teal-400/80"
+                                      placeholder="0.00"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Saldo fiado (subtotal - a cuenta) */}
+                                <div className="text-[11px] text-emerald-200 mb-2">
+                                  Saldo fiado:{' '}
+                                  <span className="font-semibold">
+                                    ${saldoCli.toFixed(2)}
+                                  </span>
+                                </div>
+
+                                {/* Grid de productos */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {productos.map((prod) => {
+                                    const key = `${cli.id}-${prod.id}`;
+                                    const value = cantidades[key] ?? '';
+                                    const precio = getPrecioVenta(prod);
+                                    return (
+                                      <div
+                                        key={prod.id}
+                                        className="rounded-lg border border-cyan-400/30 bg-slate-950/80 px-2.5 py-2 flex flex-col gap-1.5"
+                                      >
+                                        <div className="text-[11px] font-medium text-cyan-50 truncate">
+                                          {prod.nombre}
+                                        </div>
+                                        <div className="text-[11px] text-cyan-100/80">
+                                          ${precio.toFixed(2)} c/u
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[11px] text-cyan-100/80">
+                                            Cant:
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={value}
+                                            onChange={(e) =>
+                                              handleCantidadChange(
+                                                cli.id,
+                                                prod.id,
+                                                e.target.value
+                                              )
+                                            }
+                                            className="w-20 rounded-lg border border-cyan-400/50 bg-slate-950/90 px-2 py-1 text-[11px] text-cyan-50
+                             focus:outline-none focus:ring-1 focus:ring-cyan-400/70"
+                                          />
+                                        </div>
                                       </div>
-                                      <div className="text-[11px] text-cyan-100/80">
-                                        ${precio.toFixed(2)} c/u
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[11px] text-cyan-100/80">
-                                          Cant:
-                                        </span>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={value}
-                                          onChange={(e) =>
-                                            handleCantidadChange(
-                                              cli.id,
-                                              prod.id,
-                                              e.target.value
-                                            )
-                                          }
-                                          className="w-20 rounded-lg border border-cyan-400/50 bg-slate-950/90 px-2 py-1 text-[11px] text-cyan-50
-                               focus:outline-none focus:ring-1 focus:ring-cyan-400/70"
-                                        />
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -753,9 +831,9 @@ export default function VentaRepartoFormModal({
                     {/* Footer mini + botón guardar */}
                     <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2">
                       <div className="text-xs text-cyan-100/80">
-                        Total general:{' '}
+                        Total general (saldo fiado):{' '}
                         <span className="font-semibold text-emerald-300">
-                          ${totalGeneral.toFixed(2)}
+                          ${totalGeneralConACuenta.toFixed(2)}
                         </span>
                       </div>
                       <div className="flex gap-2">
