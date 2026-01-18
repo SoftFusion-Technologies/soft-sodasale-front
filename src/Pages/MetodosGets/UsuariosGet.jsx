@@ -296,7 +296,7 @@ export default function UsuariosGet() {
                 <th className="px-6 py-4">Email</th>
                 <th className="px-6 py-4">Rol</th>
                 <th className="px-6 py-4">Local</th>
-                <th className="px-6 py-4">Reemplazante</th> {/* nuevo */}
+                {/* <th className="px-6 py-4">Reemplazante</th> nuevo */}
                 <th className="px-6 py-4 text-center">Acciones</th>
               </tr>
             </thead>
@@ -316,7 +316,7 @@ export default function UsuariosGet() {
                   <td className="px-6 py-3 text-white/80">
                     {locales.find((l) => l.id === u.local_id)?.nombre || '-'}
                   </td>
-                  {/*  pill */}
+                   {/* pill
                   <td className="px-6 py-3">
                     <div className="flex justify-center">
                       {u.es_reemplazante ? (
@@ -331,7 +331,7 @@ export default function UsuariosGet() {
                         </span>
                       )}
                     </div>
-                  </td>
+                  </td> */}
 
                   <td className="px-6 py-3 text-center flex justify-center gap-4">
                     <button
@@ -434,46 +434,6 @@ export default function UsuariosGet() {
                 </option>
               ))}
             </select>
-            {/* 👇 Select moderno: es_reemplazante */}
-            <div>
-              <label className="block mb-1 text-sm font-medium text-gray-700">
-                ¿Habilitado para reemplazar?
-              </label>
-              <div className="relative">
-                <select
-                  value={formData.es_reemplazante ? '1' : '0'}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      es_reemplazante: e.target.value === '1'
-                    })
-                  }
-                  className="
-          w-full appearance-none px-4 py-2 rounded-lg border border-gray-300
-          bg-white pr-10 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
-        "
-                  required
-                >
-                  <option value="1">Sí</option>
-                  <option value="0">No</option>
-                </select>
-                {/* caret */}
-                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4 text-gray-500"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M5.23 7.21a.75.75 0 011.06.02L10 10.585l3.71-3.355a.75.75 0 111.02 1.1l-4.214 3.813a.75.75 0 01-1.012 0L5.25 8.33a.75.75 0 01-.02-1.06z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </span>
-              </div>
-            </div>
             <div className="text-right">
               <button
                 type="submit"

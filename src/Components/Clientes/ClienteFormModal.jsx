@@ -1,7 +1,7 @@
 // ===============================
 // FILE: src/Components/Clientes/ClienteFormModal.jsx
 // ===============================
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import {
@@ -15,6 +15,7 @@ import {
 import { listCiudades } from '../../api/ciudades';
 import { listLocalidades } from '../../api/localidades';
 import { listBarrios } from '../../api/barrios';
+import http from '../../api/http';
 
 export default function ClienteFormModal({
   open,
@@ -48,8 +49,12 @@ export default function ClienteFormModal({
     lng: '',
 
     // Vendedor preferido
-    vendedor_preferido_id: ''
+    vendedor_preferido_id: '',
+
+    // Reparto (asignación inicial desde el modal)
+    reparto_id: ''
   });
+
   const [saving, setSaving] = useState(false);
   const isEdit = !!initial?.id;
 
@@ -57,6 +62,54 @@ export default function ClienteFormModal({
   const [ciudades, setCiudades] = useState([]);
   const [localidades, setLocalidades] = useState([]);
   const [barrios, setBarrios] = useState(barriosProp);
+
+  // ------- Repartos -------
+  const [repartos, setRepartos] = useState([]);
+  const [repartosLoading, setRepartosLoading] = useState(false);
+
+  // UI/UX: detalle opcional (localidad/barrio)
+  const [showGeoDetail, setShowGeoDetail] = useState(false);
+
+  // Validación visual: mostrar errores luego del primer submit
+  const [attempted, setAttempted] = useState(false);
+
+  // Helpers locales
+  const toNumOrNull = (v) => {
+    if (v === '' || v === undefined || v === null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const resolveRepartoId = (obj) => {
+    try {
+      if (!obj || typeof obj !== 'object') return '';
+
+      const arr = Array.isArray(obj.asignaciones_repartos)
+        ? obj.asignaciones_repartos
+        : [];
+
+      // SOLO ACTIVO
+      const active = arr.find((x) => String(x?.estado) === 'activo');
+      if (!active) return '';
+
+      const id =
+        active?.reparto_id ??
+        active?.reparto?.id ??
+        active?.repartoId ??
+        active?.repartoID;
+
+      return id != null && id !== '' ? String(id) : '';
+    } catch {
+      return '';
+    }
+  };
+
+  // Base URL (por si usan env en Vite)
+  const API_BASE =
+    (typeof import.meta !== 'undefined' &&
+      import.meta?.env &&
+      import.meta.env.VITE_API_URL) ||
+    'http://localhost:8080';
 
   // Si no nos pasaron barrios por props, los cargamos
   useEffect(() => {
@@ -66,15 +119,31 @@ export default function ClienteFormModal({
   useEffect(() => {
     if (!open) return;
 
+    const ctrl = new AbortController();
+
     (async () => {
       try {
-        const [cRes, lRes] = await Promise.all([
+        setRepartosLoading(true);
+
+        const fetchRepartos = async () => {
+          const resp = await fetch(`${API_BASE}/repartos`, {
+            signal: ctrl.signal
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const json = await resp.json();
+          // soporta respuesta array o {data: []}
+          return Array.isArray(json) ? json : json?.data || [];
+        };
+
+        const [cRes, lRes, rRes] = await Promise.all([
           listCiudades({ orderBy: 'nombre', orderDir: 'ASC', limit: 1000 }),
-          listLocalidades({ orderBy: 'nombre', orderDir: 'ASC', limit: 5000 })
+          listLocalidades({ orderBy: 'nombre', orderDir: 'ASC', limit: 5000 }),
+          fetchRepartos()
         ]);
 
         setCiudades(Array.isArray(cRes) ? cRes : cRes?.data || []);
         setLocalidades(Array.isArray(lRes) ? lRes : lRes?.data || []);
+        setRepartos(Array.isArray(rRes) ? rRes : []);
 
         if (!barriosProp?.length) {
           const bRes = await listBarrios({
@@ -85,9 +154,15 @@ export default function ClienteFormModal({
           setBarrios(Array.isArray(bRes) ? bRes : bRes?.data || []);
         }
       } catch (e) {
-        console.error('Error cargando catálogos:', e);
+        if (e?.name !== 'AbortError') {
+          console.error('Error cargando catálogos:', e);
+        }
+      } finally {
+        setRepartosLoading(false);
       }
     })();
+
+    return () => ctrl.abort();
   }, [open]); // eslint-disable-line
 
   // ------- Inicialización de edición -------
@@ -102,7 +177,7 @@ export default function ClienteFormModal({
       email: initial?.email || '',
       estado: initial?.estado || 'activo',
 
-      ciudad_id: '',
+      ciudad_id: initial?.ciudad_id ? String(initial.ciudad_id) : '',
       localidad_id: '',
       barrio_id: initial?.barrio_id ?? '',
 
@@ -123,7 +198,10 @@ export default function ClienteFormModal({
       vendedor_preferido_id:
         initial?.vendedor_preferido_id == null
           ? ''
-          : String(initial.vendedor_preferido_id)
+          : String(initial.vendedor_preferido_id),
+
+      // Reparto (asignación inicial desde el modal)
+      reparto_id: resolveRepartoId(initial)
     };
 
     // Si el include trae incGeo, usarlo directo
@@ -132,7 +210,7 @@ export default function ClienteFormModal({
 
     // Si no viene include, intentar resolver por catálogo (barrios -> localidad_id -> ciudad_id)
     let localidad_id = locIdFromInclude || '';
-    let ciudad_id = ciudadIdFromInclude || '';
+    let ciudad_id = seed.ciudad_id || ciudadIdFromInclude || '';
 
     if (!localidad_id || !ciudad_id) {
       const b = (barriosProp.length ? barriosProp : barrios).find(
@@ -149,12 +227,60 @@ export default function ClienteFormModal({
       }
     }
 
+    // Si trae barrio/localidad, mostramos el detalle automáticamente
+    const hasDetail =
+      (seed.barrio_id && Number(seed.barrio_id)) ||
+      (localidad_id && Number(localidad_id));
+
+    setShowGeoDetail(!!hasDetail);
+
+    const repartoFromInitial = resolveRepartoId(initial);
+
     setForm((f) => ({
       ...seed,
       ciudad_id: ciudad_id || '',
-      localidad_id: localidad_id || ''
+      localidad_id: localidad_id || '',
+      reparto_id: repartoFromInitial || f.reparto_id || ''
     }));
-  }, [open, initial, barrios, localidades, barriosProp]); // eslint-disable-line
+
+    setAttempted(false);
+  }, [open, initial, barrios, localidades, barriosProp]);
+
+  // Si en edición el "initial" no trae reparto, intentamos hidratar desde GET /clientes/:id
+  useEffect(() => {
+    if (!open) return;
+    if (!isEdit) return;
+    if (!initial?.id) return;
+
+    const repFromInitial = resolveRepartoId(initial);
+    if (repFromInitial) return; // ya vino
+
+    let alive = true;
+
+    (async () => {
+      try {
+        const { data } = await http.get(`/clientes/${initial.id}`);
+
+        if (!alive) return;
+
+        const repId = resolveRepartoId(data);
+
+        if (repId) {
+          setForm((f) => ({
+            ...f,
+            reparto_id: f.reparto_id || repId // no pisar si ya se seteo
+          }));
+        }
+      } catch (e) {
+        console.log('[ClienteFormModal] hidratar error', e?.message || e);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [open, isEdit, initial?.id]);
+
 
   // ------- Cascada (filtros derivados) -------
   const localidadesFiltradas = useMemo(() => {
@@ -169,6 +295,21 @@ export default function ClienteFormModal({
     return barrios.filter((b) => Number(b.localidad_id) === lid);
   }, [barrios, form.localidad_id]);
 
+  const repartosFiltrados = useMemo(() => {
+    const cid = Number(form.ciudad_id) || null;
+    const activos = (repartos || []).filter(
+      (r) => String(r.estado) === 'activo'
+    );
+    if (!cid) return activos;
+    return activos.filter((r) => Number(r.ciudad_id) === cid);
+  }, [repartos, form.ciudad_id]);
+
+  const repartoSeleccionado = useMemo(() => {
+    const rid = Number(form.reparto_id) || null;
+    if (!rid) return null;
+    return (repartos || []).find((r) => Number(r.id) === rid) || null;
+  }, [repartos, form.reparto_id]);
+
   // Al cambiar ciudad -> limpiar localidad y barrio
   const handleCiudad = (e) => {
     const val = e.target.value;
@@ -176,10 +317,10 @@ export default function ClienteFormModal({
       ...f,
       ciudad_id: val,
       localidad_id: '',
-      barrio_id: ''
+      barrio_id: '',
+      reparto_id: ''
     }));
   };
-
   // Al cambiar localidad -> limpiar barrio
   const handleLocalidad = (e) => {
     const val = e.target.value;
@@ -195,11 +336,52 @@ export default function ClienteFormModal({
     setForm((f) => ({ ...f, barrio_id: val }));
   };
 
+  const handleReparto = (e) => {
+    const val = e.target.value; // '' o '9'
+    setForm((f) => ({
+      ...f,
+      reparto_id: val
+    }));
+  };
+
   // ------- Reglas de validación mínimas -------
+  const errors = useMemo(() => {
+    const out = {};
+
+    const nombreOK = form.nombre.trim().length > 0;
+    if (!nombreOK) out.nombre = 'El nombre es obligatorio.';
+
+    const ciudadOK = Number(form.ciudad_id) > 0;
+    if (!ciudadOK) out.ciudad_id = 'La ciudad es obligatoria.';
+
+    const calleOK = String(form.direccion_calle || '').trim().length > 0;
+    if (!calleOK) out.direccion_calle = 'La calle es obligatoria.';
+
+    const numeroOK = String(form.direccion_numero || '').trim().length > 0;
+    if (!numeroOK) out.direccion_numero = 'El número de calle es obligatorio.';
+
+    // Reparto: opcional, pero si se eligió, debe ser numérico válido
+    if (form.reparto_id !== '') {
+      const rid = Number(form.reparto_id);
+      if (!Number.isFinite(rid) || rid <= 0) {
+        out.reparto_id = 'El reparto seleccionado es inválido.';
+      }
+    }
+
+    return out;
+  }, [
+    form.nombre,
+    form.ciudad_id,
+    form.direccion_calle,
+    form.direccion_numero,
+    form.reparto_id
+  ]);
+
   const canSave = useMemo(() => {
-    const nombreOK = form.nombre.trim().length > 1;
-    return nombreOK;
-  }, [form.nombre]);
+    return Object.keys(errors).length === 0;
+  }, [errors]);
+
+  const showError = (key) => attempted && !!errors[key];
 
   // ------- Handler genérico -------
   const handle = (e) => {
@@ -214,17 +396,15 @@ export default function ClienteFormModal({
   // ------- Submit -------
   const submit = async (e) => {
     e.preventDefault();
+    setAttempted(true);
     if (!canSave) return;
 
     const toNull = (v) => (v === '' || v === undefined ? null : v);
-    const toNumOrNull = (v) => {
-      if (v === '' || v === undefined || v === null) return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
+    const repId = form.reparto_id === '' ? null : Number(form.reparto_id);
 
     try {
       setSaving(true);
+
       await onSubmit({
         nombre: form.nombre.trim(),
         documento: form.documento?.trim() || null,
@@ -232,7 +412,13 @@ export default function ClienteFormModal({
         email: form.email?.trim() || null,
         estado: form.estado,
 
+        // Nuevo requerido por negocio (solo ciudad, localidad/barrio opcional)
+        ciudad_id: toNumOrNull(form.ciudad_id),
+
+        // Se mantiene por compatibilidad: si el usuario completa detalle, se envía
         barrio_id: toNumOrNull(form.barrio_id),
+
+        // Obligatorios por negocio
         direccion_calle: toNull(form.direccion_calle?.trim()),
         direccion_numero: toNull(form.direccion_numero?.trim()),
         direccion_piso_dpto: toNull(form.direccion_piso_dpto?.trim()),
@@ -241,10 +427,13 @@ export default function ClienteFormModal({
         lat: toNumOrNull(form.lat),
         lng: toNumOrNull(form.lng),
 
-        vendedor_preferido_id: toNumOrNull(form.vendedor_preferido_id)
+        vendedor_preferido_id: toNumOrNull(form.vendedor_preferido_id),
+
+        // Asignación inicial desde el modal
+        reparto_id: Number.isFinite(repId) ? repId : null
       });
 
-      onClose();
+      // onClose();
     } finally {
       setSaving(false);
     }
@@ -310,10 +499,16 @@ export default function ClienteFormModal({
                     name="nombre"
                     value={form.nombre}
                     onChange={handle}
-                    className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
-                               placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                    className={`w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                               placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                               ${showError('nombre') ? 'ring-2 ring-rose-400/50 border-rose-400/40' : ''}`}
                     placeholder="Nombre y apellido"
                   />
+                  {showError('nombre') && (
+                    <p className="mt-2 text-xs text-rose-200/90">
+                      {errors.nombre}
+                    </p>
+                  )}
                 </motion.div>
 
                 {/* Documento / Teléfono / Email / Estado */}
@@ -392,14 +587,15 @@ export default function ClienteFormModal({
                   {/* Ciudad */}
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Ciudad
+                      Ciudad <span className="text-cyan-300">*</span>
                     </label>
                     <select
                       name="ciudad_id"
                       value={form.ciudad_id}
                       onChange={handleCiudad}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
-                                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                      className={`w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                                 ${showError('ciudad_id') ? 'ring-2 ring-rose-400/50 border-rose-400/40' : ''}`}
                     >
                       <option className="text-black" value="">
                         Seleccionar…
@@ -410,24 +606,43 @@ export default function ClienteFormModal({
                         </option>
                       ))}
                     </select>
+                    {showError('ciudad_id') && (
+                      <p className="mt-2 text-xs text-rose-200/90">
+                        {errors.ciudad_id}
+                      </p>
+                    )}
                   </motion.div>
 
                   {/* Localidad (filtrada por ciudad) */}
                   <motion.div variants={fieldV}>
-                    <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Localidad
-                    </label>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <label className="block text-sm font-medium text-gray-200">
+                        Localidad
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowGeoDetail((v) => !v)}
+                        className="text-xs text-gray-200/80 hover:text-gray-100 underline underline-offset-4"
+                      >
+                        {showGeoDetail
+                          ? 'Ocultar detalle'
+                          : 'Agregar detalle (opcional)'}
+                      </button>
+                    </div>
+
                     <select
                       name="localidad_id"
                       value={form.localidad_id}
                       onChange={handleLocalidad}
-                      disabled={!form.ciudad_id}
+                      disabled={!form.ciudad_id || !showGeoDetail}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
                                  disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
                     >
                       <option className="text-black" value="">
                         {form.ciudad_id
-                          ? 'Seleccionar…'
+                          ? showGeoDetail
+                            ? 'Seleccionar…'
+                            : '(Detalle desactivado)'
                           : '(Elegí ciudad primero)'}
                       </option>
                       {localidadesFiltradas.map((l) => (
@@ -447,14 +662,14 @@ export default function ClienteFormModal({
                       name="barrio_id"
                       value={form.barrio_id}
                       onChange={handleBarrio}
-                      disabled={!form.localidad_id}
+                      disabled={!form.localidad_id || !showGeoDetail}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
                                  disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
                     >
                       <option className="text-black" value="">
-                        {form.localidad_id
+                        {form.localidad_id && showGeoDetail
                           ? 'Seleccionar…'
-                          : '(Elegí localidad primero)'}
+                          : '(Opcional)'}
                       </option>
                       {barriosFiltrados.map((b) => (
                         <option className="text-black" key={b.id} value={b.id}>
@@ -464,6 +679,70 @@ export default function ClienteFormModal({
                     </select>
                   </motion.div>
                 </div>
+
+                {/* Asignación inicial de reparto (desde el modal) */}
+                <motion.div variants={fieldV}>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">
+                    Reparto (opcional)
+                  </label>
+
+                  <select
+                    name="reparto_id"
+                    value={form.reparto_id}
+                    onChange={handleReparto}
+                    disabled={!form.ciudad_id || repartosLoading}
+                    className={`w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                               disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                               ${showError('reparto_id') ? 'ring-2 ring-rose-400/50 border-rose-400/40' : ''}`}
+                  >
+                    <option className="text-black" value="">
+                      {!form.ciudad_id
+                        ? '(Elegí ciudad primero)'
+                        : repartosLoading
+                          ? 'Cargando repartos…'
+                          : '(Sin asignar)'}
+                    </option>
+
+                    {repartosFiltrados.map((r) => (
+                      <option className="text-black" key={r.id} value={r.id}>
+                        {r.nombre} ({r.rango_min}–{r.rango_max})
+                      </option>
+                    ))}
+                  </select>
+
+                  {showError('reparto_id') && (
+                    <p className="mt-2 text-xs text-rose-200/90">
+                      {errors.reparto_id}
+                    </p>
+                  )}
+
+                  {!!form.ciudad_id &&
+                    !repartosLoading &&
+                    repartosFiltrados.length === 0 && (
+                      <p className="mt-2 text-xs text-gray-200/75">
+                        No hay repartos activos para la ciudad seleccionada.
+                      </p>
+                    )}
+
+                  {repartoSeleccionado && (
+                    <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-3.5 py-3">
+                      <div className="text-sm text-gray-100">
+                        <span className="font-semibold">
+                          {repartoSeleccionado.nombre}
+                        </span>{' '}
+                        <span className="text-gray-200/80">
+                          {repartoSeleccionado?.ciudad?.nombre
+                            ? `- ${repartoSeleccionado.ciudad.nombre}`
+                            : ''}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-200/75 mt-1">
+                        Rango de clientes: {repartoSeleccionado.rango_min}–
+                        {repartoSeleccionado.rango_max}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
 
                 {/* Vendedor preferido */}
                 <motion.div variants={fieldV}>
@@ -493,30 +772,42 @@ export default function ClienteFormModal({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Calle
+                      Calle <span className="text-cyan-300">*</span>
                     </label>
                     <input
                       name="direccion_calle"
                       value={form.direccion_calle}
                       onChange={handle}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
-                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                      className={`w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                                 ${showError('direccion_calle') ? 'ring-2 ring-rose-400/50 border-rose-400/40' : ''}`}
                       placeholder="Ej: San Martín"
                     />
+                    {showError('direccion_calle') && (
+                      <p className="mt-2 text-xs text-rose-200/90">
+                        {errors.direccion_calle}
+                      </p>
+                    )}
                   </motion.div>
 
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Número
+                      Número <span className="text-cyan-300">*</span>
                     </label>
                     <input
                       name="direccion_numero"
                       value={form.direccion_numero}
                       onChange={handle}
-                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
-                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                      className={`w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                                 ${showError('direccion_numero') ? 'ring-2 ring-rose-400/50 border-rose-400/40' : ''}`}
                       placeholder="1234"
                     />
+                    {showError('direccion_numero') && (
+                      <p className="mt-2 text-xs text-rose-200/90">
+                        {errors.direccion_numero}
+                      </p>
+                    )}
                   </motion.div>
 
                   <motion.div variants={fieldV}>
@@ -548,6 +839,7 @@ export default function ClienteFormModal({
                     placeholder="Frente a..., cerca de..."
                   />
                 </motion.div>
+
                 {/* Acciones */}
                 <motion.div
                   variants={fieldV}
@@ -569,8 +861,8 @@ export default function ClienteFormModal({
                     {saving
                       ? 'Guardando…'
                       : isEdit
-                      ? 'Guardar cambios'
-                      : 'Crear'}
+                        ? 'Guardar cambios'
+                        : 'Crear'}
                   </button>
                 </motion.div>
               </motion.form>

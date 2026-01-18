@@ -15,7 +15,7 @@ import { listCiudades } from '../../api/ciudades';
 import { listClientes } from '../../api/clientes';
 import { listProductos } from '../../api/productos';
 import SearchableSelect from '../Common/SearchableSelect';
-
+import http from '../../api/http';
 export default function VentaFormModal({ open, onClose, onSubmit }) {
   const [form, setForm] = useState({
     fecha: new Date(),
@@ -23,7 +23,12 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     cliente_id: '',
     vendedor_id: '',
     tipo: 'fiado', // contado | fiado | a_cuenta
-    observaciones: ''
+    observaciones: '',
+    // ======================================================
+    // Benjamin Orellana - 17-01-2026
+    // Monto a cuenta para ventas tipo "a_cuenta"
+    // ======================================================
+    monto_a_cuenta: ''
   });
 
   const [saving, setSaving] = useState(false);
@@ -36,6 +41,80 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
   // Selección actual
   const [selectedCliente, setSelectedCliente] = useState(null);
   const [vendedorLabel, setVendedorLabel] = useState('');
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Repartos (para selector reparto_id en ventas)
+  // ======================================================
+  const [repartos, setRepartos] = useState([]);
+  const [loadingRepartos, setLoadingRepartos] = useState(false);
+  const [repartosError, setRepartosError] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoadingRepartos(true);
+        setRepartosError(null);
+
+        // Endpoint: http://localhost:8080/repartos
+        const r = await http.get('/repartos', {
+          params: {
+            limit: 9999,
+            offset: 0,
+            orderBy: 'created_at',
+            orderDir: 'DESC'
+          }
+        });
+
+        const data = r?.data?.data || [];
+        if (alive) setRepartos(Array.isArray(data) ? data : []);
+      } catch (e) {
+        if (alive) {
+          setRepartos([]);
+          setRepartosError('No se pudieron cargar los repartos.');
+        }
+      } finally {
+        if (alive) setLoadingRepartos(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Repartos filtrados por ciudad seleccionada
+  // ======================================================
+  const repartosByCiudad = useMemo(() => {
+    const list = Array.isArray(repartos) ? repartos : [];
+    const ciudadId = Number(form.ciudad_id || 0);
+
+    const filtered =
+      ciudadId > 0 ? list.filter((r) => Number(r.ciudad_id) === ciudadId) : [];
+
+    // Orden por nombre (estable)
+    return filtered.sort((a, b) =>
+      String(a?.nombre || '').localeCompare(String(b?.nombre || ''))
+    );
+  }, [repartos, form.ciudad_id]);
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Handler reparto
+  // ======================================================
+  const handleReparto = (e) => {
+    const v = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      reparto_id: v === '' ? '' : v
+    }));
+  };
 
   // Items (detalle)
   const [items, setItems] = useState([
@@ -50,13 +129,31 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
       cliente_id: '',
       vendedor_id: '',
       tipo: 'fiado',
-      observaciones: ''
+      observaciones: '',
+      // Benjamin Orellana - 17-01-2026
+      monto_a_cuenta: ''
     });
     setSelectedCliente(null);
     setVendedorLabel('');
     setItems([
       { producto_id: '', producto: null, cantidad: '', precio_unit: '' }
     ]);
+  };
+
+  const moneyRound = (n) =>
+    Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Resolver "precio" de producto
+  // ======================================================
+  const getPrecioFromProducto = (p) => {
+    if (!p) return null;
+
+    // Tu API expone el precio en pre_prod (string)
+    const n = Number(p.pre_prod);
+
+    return Number.isFinite(n) && n >= 0 ? moneyRound(n) : null;
   };
 
   // Formateo de fecha para mostrar (bloqueada)
@@ -69,6 +166,12 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     });
   }, [form.fecha]);
 
+  const formatMoneyLabel = (n) =>
+    Number(n || 0).toLocaleString('es-AR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
   // Total calculado (preview)
   const totalNeto = useMemo(() => {
     return items.reduce((acc, it) => {
@@ -79,13 +182,27 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     }, 0);
   }, [items]);
 
-  const totalLabel = useMemo(
-    () =>
-      totalNeto.toLocaleString('es-AR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }),
-    [totalNeto]
+  const totalLabel = useMemo(() => formatMoneyLabel(totalNeto), [totalNeto]);
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // A cuenta y saldo (solo aplica si tipo === 'a_cuenta')
+  // ======================================================
+  const aCuentaNumber = useMemo(() => {
+    const n = Number(form.monto_a_cuenta);
+    return Number.isFinite(n) ? moneyRound(n) : 0;
+  }, [form.monto_a_cuenta]);
+
+  const saldoNumber = useMemo(() => {
+    const saldo = moneyRound(
+      Number(totalNeto || 0) - Number(aCuentaNumber || 0)
+    );
+    return saldo < 0 ? 0 : saldo;
+  }, [totalNeto, aCuentaNumber]);
+
+  const saldoLabel = useMemo(
+    () => formatMoneyLabel(saldoNumber),
+    [saldoNumber]
   );
 
   // Puede guardar: cliente + vendedor + al menos un ítem válido
@@ -106,10 +223,26 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
         );
       });
 
-    return hasCliente && hasVendedor && hasItemsValidos;
-  }, [form.cliente_id, form.vendedor_id, items]);
+    // Benjamin Orellana - 17-01-2026
+    // Si es "a_cuenta", validamos que a_cuenta no supere total
+    const aCuentaOk =
+      form.tipo !== 'a_cuenta'
+        ? true
+        : Number.isFinite(aCuentaNumber) &&
+          aCuentaNumber >= 0 &&
+          aCuentaNumber <= moneyRound(totalNeto) + 0.01;
 
-    /* descomentar para seguimiento
+    return hasCliente && hasVendedor && hasItemsValidos && aCuentaOk;
+  }, [
+    form.cliente_id,
+    form.vendedor_id,
+    form.tipo,
+    items,
+    aCuentaNumber,
+    totalNeto
+  ]);
+
+  /* descomentar para seguimiento
   useEffect(() => {
     const cliId = Number(form.cliente_id);
     const vendId = Number(form.vendedor_id);
@@ -159,41 +292,53 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     })();
   }, [open]);
 
-  // Cargar clientes al elegir ciudad
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Cargar clientes al elegir reparto (fuente de verdad)
+  // ======================================================
   useEffect(() => {
     if (!open) return;
-    if (!form.ciudad_id) {
-      setClientes([]);
-      setSelectedCliente(null);
-      setVendedorLabel('');
-      setForm((f) => ({
-        ...f,
-        cliente_id: '',
-        vendedor_id: ''
-      }));
-      return;
-    }
+
+    // si no hay reparto, no hacemos nada (queda el fallback por ciudad)
+    if (!form.reparto_id) return;
+
+    // cada vez que cambia reparto, reseteamos selección de cliente/vendedor
+    setClientes([]);
+    setSelectedCliente(null);
+    setVendedorLabel('');
+    setForm((f) => ({
+      ...f,
+      cliente_id: '',
+      vendedor_id: ''
+    }));
 
     (async () => {
       try {
         const cRes = await listClientes({
-          ciudad_id: form.ciudad_id,
+          reparto_id: Number(form.reparto_id),
           estado: 'activo',
           limit: 1000
         });
-        const cls = Array.isArray(cRes?.data) ? cRes.data : cRes || [];
+
+        const cls = Array.isArray(cRes?.data) ? cRes.data : [];
         setClientes(cls);
       } catch (err) {
-        console.error('Error cargando clientes por ciudad:', err);
+        console.error('Error cargando clientes por reparto:', err);
+        setClientes([]);
       }
     })();
-  }, [open, form.ciudad_id]);
+  }, [open, form.reparto_id]);
 
   // ---------- Handlers de campos simples ----------
   const handleTipo = (tipo) =>
     setForm((f) => ({
       ...f,
-      tipo
+      tipo,
+      // ======================================================
+      // Benjamin Orellana - 17-01-2026
+      // Si cambia a contado/fiado, limpiamos monto_a_cuenta
+      // ======================================================
+      ...(tipo === 'a_cuenta' ? {} : { monto_a_cuenta: '' })
     }));
 
   const handleObservaciones = (e) => {
@@ -201,12 +346,52 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     setForm((f) => ({ ...f, observaciones: value }));
   };
 
-  const handleCiudad = (e) => {
-    const val = e.target.value;
-    setForm((f) => ({
-      ...f,
-      ciudad_id: val
-    }));
+const handleCiudad = (e) => {
+  const v = e.target.value;
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Reset duro al cambiar ciudad para evitar clientes "pegados"
+  // ======================================================
+  setClientes([]);
+  setSelectedCliente(null);
+  setVendedorLabel('');
+
+  setForm((prev) => ({
+    ...prev,
+    ciudad_id: v,
+
+    // al cambiar ciudad, limpiamos selección y dependencias
+    reparto_id: '',
+    cliente_id: '',
+    vendedor_id: '',
+
+    localidad_id: '',
+    barrio_id: ''
+  }));
+};
+
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Handler de A cuenta
+  // ======================================================
+  const handleMontoACuenta = (e) => {
+    const raw = e.target.value;
+
+    // Permitimos '' para UX; se interpreta como 0
+    if (raw === '') {
+      setForm((f) => ({ ...f, monto_a_cuenta: '' }));
+      return;
+    }
+
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return;
+
+    // Clamp a totalNeto (no permitir pagar más que el total)
+    const clamped = n > Number(totalNeto || 0) ? Number(totalNeto || 0) : n;
+
+    setForm((f) => ({ ...f, monto_a_cuenta: String(moneyRound(clamped)) }));
   };
 
   // ---------- Cliente & vendedor ----------
@@ -273,12 +458,42 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
       prev.map((row, i) => {
         if (i !== index) return row;
 
-        const id =
-          typeof prodOrId === 'object' ? prodOrId.id : Number(prodOrId) || '';
+        // ======================================================
+        // Benjamin Orellana - 17-01-2026
+        // Al seleccionar producto:
+        // - Setea cantidad por defecto = 1 (si estaba vacía/0)
+        // - Setea precio_unit automáticamente (si el producto trae precio)
+        // ======================================================
+        const prod =
+          typeof prodOrId === 'object'
+            ? prodOrId
+            : productos.find((p) => p.id === Number(prodOrId));
+
+        const id = prod ? prod.id : Number(prodOrId) || '';
+
+        if (!id) {
+          return {
+            ...row,
+            producto_id: '',
+            producto: null
+          };
+        }
+
+        const precioAuto = getPrecioFromProducto(prod);
+        const cantActual = Number(row.cantidad);
 
         return {
           ...row,
-          producto_id: id
+          producto_id: id,
+          producto: prod || null,
+          cantidad:
+            !Number.isFinite(cantActual) || cantActual <= 0
+              ? '1'
+              : row.cantidad,
+          precio_unit:
+            precioAuto === null || precioAuto === undefined
+              ? row.precio_unit
+              : String(precioAuto)
         };
       })
     );
@@ -320,18 +535,34 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     try {
       setSaving(true);
       await onSubmit({
-        // Cabecera de venta
         venta: {
           cliente_id: Number(form.cliente_id),
           vendedor_id: Number(form.vendedor_id),
           fecha: fechaPayload,
           tipo: form.tipo,
-          observaciones: form.observaciones?.trim() || null
+          observaciones: form.observaciones?.trim() || null,
+
+          // ======================================================
+          // Benjamin Orellana - 17-01-2026
+          // Nuevo: reparto_id (snapshot para filtrar por reparto)
+          // ======================================================
+          reparto_id:
+            form.reparto_id === '' ||
+            form.reparto_id === null ||
+            form.reparto_id === undefined
+              ? null
+              : Number(form.reparto_id),
+
+          // ======================================================
+          // Benjamin Orellana - 17-01-2026
+          // Enviamos monto_a_cuenta
+          // ======================================================
+          monto_a_cuenta: moneyRound(Number(form.monto_a_cuenta || 0))
         },
-        // Detalle
         items: itemsPayload
       });
-      onClose();
+
+      // onClose();
     } finally {
       setSaving(false);
     }
@@ -406,8 +637,8 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
                   </p>
                 </motion.div>
 
-                {/* Ciudad + Cliente + Vendedor */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Ciudad + Reparto + Cliente */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   {/* Ciudad */}
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
@@ -418,7 +649,7 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
                       value={form.ciudad_id}
                       onChange={handleCiudad}
                       className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
-                                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
                     >
                       <option className="text-black" value="">
                         Seleccionar…
@@ -430,8 +661,65 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
                       ))}
                     </select>
                     <p className="mt-1 text-[11px] text-gray-300/70">
-                      Usamos la ciudad para filtrar los clientes (ej. Monteros).
+                      Usamos la ciudad para filtrar los clientes.
                     </p>
+                  </motion.div>
+
+                  {/* Reparto */}
+                  <motion.div variants={fieldV}>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">
+                      Reparto
+                    </label>
+
+                    <select
+                      name="reparto_id"
+                      value={form.reparto_id ?? ''}
+                      onChange={handleReparto}
+                      disabled={!form.ciudad_id || loadingRepartos}
+                      className="w-full rounded-xl border border-white/10 bg-white/5 px-3.5 py-3 text-white
+                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <option className="text-black" value="">
+                        {loadingRepartos
+                          ? 'Cargando repartos…'
+                          : !form.ciudad_id
+                            ? 'Seleccioná ciudad primero…'
+                            : 'Sin reparto (opcional)…'}
+                      </option>
+
+                      {repartosByCiudad.map((r) => {
+                        const inactivo = r?.estado !== 'activo';
+                        const rangoTxt =
+                          r?.rango_min != null || r?.rango_max != null
+                            ? ` · (${r?.rango_min ?? ''}-${r?.rango_max ?? ''})`
+                            : '';
+
+                        return (
+                          <option
+                            className="text-black"
+                            key={r.id}
+                            value={r.id}
+                            disabled={inactivo}
+                          >
+                            {r.nombre}
+                            {rangoTxt}
+                            {inactivo ? ' [inactivo]' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <p className="mt-1 text-[11px] text-gray-300/70">
+                      Opcional. Se guarda en la venta para filtrar por reparto.
+                      Solo se listan los de la ciudad seleccionada.
+                    </p>
+
+                    {repartosError && (
+                      <p className="mt-1 text-[11px] text-red-200/90">
+                        {repartosError}
+                      </p>
+                    )}
                   </motion.div>
 
                   {/* Cliente (SearchableSelect) */}
@@ -645,13 +933,71 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
                     ))}
                   </div>
 
-                  {/* Total */}
-                  <div className="flex justify-end pt-2">
-                    <div className="text-right">
-                      <p className="text-xs text-gray-300/80">Total estimado</p>
-                      <p className="text-lg font-semibold text-emerald-300">
-                        $ {totalLabel}
-                      </p>
+                  {/* Total + A cuenta (derecha) */}
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 pt-2">
+                    <div className="text-[11px] text-gray-300/70">
+                      {form.tipo === 'a_cuenta'
+                        ? 'Ingresá el monto cobrado hoy. El saldo quedará como deuda.'
+                        : 'Al seleccionar un producto, se carga automáticamente el precio y cantidad 1.'}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                      {/* Benjamin Orellana - 17-01-2026: Casilla A cuenta */}
+                      <div className="w-full sm:w-44">
+                        <p className="text-xs text-gray-300/80 mb-1">
+                          A cuenta
+                        </p>
+
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.monto_a_cuenta ?? ''}
+                          onChange={(e) => {
+                            handleMontoACuenta(e);
+                            const n = Number(e.target.value);
+                            if (
+                              Number.isFinite(n) &&
+                              n > 0 &&
+                              form.tipo !== 'a_cuenta'
+                            ) {
+                              setForm((prev) => ({
+                                ...prev,
+                                tipo: 'a_cuenta'
+                              }));
+                            }
+                          }}
+                          className="w-full rounded-xl border px-2.5 py-2 text-white text-sm
+      border-white/10 bg-white/5
+      focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                          placeholder="0.00"
+                        />
+
+                        {aCuentaNumber > moneyRound(totalNeto) + 0.01 && (
+                          <p className="mt-1 text-[11px] text-red-200/90">
+                            El monto a cuenta no puede superar el total.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Totales */}
+                      <div className="text-right">
+                        <p className="text-xs text-gray-300/80">
+                          Total estimado
+                        </p>
+                        <p className="text-lg font-semibold text-emerald-300">
+                          $ {totalLabel}
+                        </p>
+
+                        {form.tipo === 'a_cuenta' && (
+                          <p className="text-xs text-gray-200/80">
+                            Saldo:{' '}
+                            <span className="font-semibold text-amber-200">
+                              $ {saldoLabel}
+                            </span>
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </motion.div>

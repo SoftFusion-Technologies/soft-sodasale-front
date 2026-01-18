@@ -114,7 +114,7 @@ export default function RepartoFormModal({ open, onClose, onSubmit, initial }) {
         rango_max: Number(form.rango_max) || 0
       };
       await onSubmit(payload);
-      onClose();
+      // onClose(); para evitar que se cierre - comentamos
     } finally {
       setSaving(false);
     }

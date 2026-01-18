@@ -158,7 +158,7 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                       <AlertTriangle className="h-5 w-5 text-emerald-300" />
                     </span>
                     <div>
-                      <h3 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-emerald-50">
+                      <h3 className="titulo uppercase text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-emerald-50">
                         Deudores por ventas fiado
                       </h3>
                       <p className="text-xs sm:text-sm text-emerald-100/80">

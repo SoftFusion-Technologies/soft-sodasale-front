@@ -50,7 +50,7 @@ export default function RepartoAsignarClientesModal({
   const [qClientes, setQClientes] = useState('');
   const dqClientes = useDebounce(qClientes);
   const [pageClientes, setPageClientes] = useState(1);
-  const limitClientes = 15;
+  const limitClientes = 20;
 
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -192,6 +192,7 @@ export default function RepartoAsignarClientesModal({
   // ===============================
   const handleAsignar = async () => {
     const ids = Array.from(selectedIds);
+
     if (!ids.length) {
       return showWarnSwal({
         title: 'Sin selección',
@@ -203,14 +204,35 @@ export default function RepartoAsignarClientesModal({
     try {
       const resp = await asignarClientesReparto(reparto.id, {
         cliente_ids: ids,
-        modo: 'append'
+        modo: 'append' // el backend puede ignorarlo; no afecta
       });
 
-      const asignadosCount = resp?.asignados?.length ?? ids.length;
+      // Backend nuevo:
+      // resp.asignados (creados) | resp.reactivados | resp.yaActivos
+      const creados = Array.isArray(resp?.asignados)
+        ? resp.asignados.length
+        : 0;
+      const reactivados = Array.isArray(resp?.reactivados)
+        ? resp.reactivados.length
+        : 0;
+      const yaActivos = Array.isArray(resp?.yaActivos)
+        ? resp.yaActivos.length
+        : 0;
+
+      const totalAfectados = creados + reactivados;
+
+      // Mensaje UX claro (sin mentir con ids.length)
+      const parts = [];
+      if (creados) parts.push(`Creados: ${creados}`);
+      if (reactivados) parts.push(`Reactivados: ${reactivados}`);
+      if (yaActivos) parts.push(`Ya activos: ${yaActivos}`);
+      const detalle = parts.length
+        ? parts.join(' • ')
+        : `Procesados: ${totalAfectados}`;
 
       await showSuccessSwal({
         title: 'Asignación realizada',
-        text: `Se asignaron ${asignadosCount} cliente(s) al reparto.`
+        text: detalle
       });
 
       clearSelection();
@@ -235,12 +257,17 @@ export default function RepartoAsignarClientesModal({
         });
       }
 
-      if (code === 'DUPLICATE' || code === 'ALREADY_ASSIGNED') {
+      // Compatibilidad: ALREADY_ASSIGNED (backend nuevo) o SIN_NUEVOS_CLIENTES (viejo)
+      if (
+        code === 'DUPLICATE' ||
+        code === 'ALREADY_ASSIGNED' ||
+        code === 'SIN_NUEVOS_CLIENTES'
+      ) {
         return showWarnSwal({
           title: 'Clientes ya asignados',
           text:
             mensajeError ||
-            'Algunos clientes ya estaban asignados a este reparto.',
+            'Los clientes seleccionados ya estaban asignados a este reparto.',
           tips
         });
       }
@@ -263,12 +290,19 @@ export default function RepartoAsignarClientesModal({
       confirmText: 'Sí, quitar'
     });
 
+    const isConfirmed =
+      typeof res === 'object' && res ? !!res.isConfirmed : !!res;
+
+    if (!isConfirmed) return; //si canceló, no hacemos nada
+
     try {
       await deleteRepartoCliente(repCli.id);
+
       await showSuccessSwal({
         title: 'Cliente quitado',
         text: 'El cliente fue quitado del reparto.'
       });
+
       await fetchAssigned();
       await fetchClientes();
       onChanged?.();
@@ -342,7 +376,9 @@ export default function RepartoAsignarClientesModal({
                   <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-500/20 border border-teal-300/40">
                     <Users className="h-5 w-5 text-teal-300" />
                   </span>
-                  <span>Asignar clientes al reparto</span>
+                  <span className="titulo uppercase text-xl">
+                    Asignar clientes al reparto
+                  </span>
                   <span className="text-teal-300">
                     “{reparto.nombre || 'Reparto'}”
                   </span>
@@ -468,7 +504,7 @@ export default function RepartoAsignarClientesModal({
                   variants={formContainerV}
                   initial="hidden"
                   animate="visible"
-                  className="rounded-2xl border border-cyan-400/40 bg-slate-900/60 backdrop-blur-md p-3 sm:p-4 flex flex-col"
+                  className="rounded-2xl border border-cyan-400/40 bg-slate-900/60 backdrop-blur-md p-3 sm:p-4 flex flex-col min-h-0"
                 >
                   {/* Filtros */}
                   <motion.div
@@ -500,8 +536,11 @@ export default function RepartoAsignarClientesModal({
                     </div>
                   </motion.div>
 
-                  {/* Lista de clientes */}
-                  <div className="flex-1 min-h-[200px] max-h-[340px] sm:max-h-[380px] overflow-y-auto rounded-xl border border-cyan-400/25 bg-slate-950/60">
+                  {/* Lista de clientes (SCROLL) */}
+                  <div
+                    className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 rounded-xl border border-cyan-400/25 bg-slate-950/60"
+                    style={{ WebkitOverflowScrolling: 'touch' }}
+                  >
                     {loadingClientes ? (
                       <div className="flex items-center justify-center py-16">
                         <div className="h-9 w-9 rounded-full border-2 border-cyan-300/60 border-t-transparent animate-spin" />
@@ -524,11 +563,9 @@ export default function RepartoAsignarClientesModal({
                             <li
                               key={id}
                               className={`px-3 py-2.5 text-xs sm:text-[13px] flex items-center gap-3 cursor-pointer
-                                         hover:bg-slate-900/80 ${
-                                           checked
-                                             ? 'bg-teal-900/70'
-                                             : 'bg-transparent'
-                                         }`}
+                         hover:bg-slate-900/80 ${
+                           checked ? 'bg-teal-900/70' : 'bg-transparent'
+                         }`}
                               onClick={() => toggleSelect(id)}
                             >
                               <input
@@ -609,8 +646,8 @@ export default function RepartoAsignarClientesModal({
                         onClick={handleAsignar}
                         disabled={selectedIds.size === 0}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-xl
-                                   bg-gradient-to-r from-teal-500 to-cyan-400 text-white text-[13px] font-semibold
-                                   hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                   bg-gradient-to-r from-teal-500 to-cyan-400 text-white text-[13px] font-semibold
+                   hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition"
                       >
                         <CheckCircle2 className="h-4 w-4" />
                         Asignar seleccionados

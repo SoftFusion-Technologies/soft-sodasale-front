@@ -22,13 +22,20 @@ import { useAuth } from '../../AuthContext';
 import ParticlesBackground from '../../Components/ParticlesBackground';
 import { motion } from 'framer-motion';
 import ButtonBack from '../../Components/ButtonBack';
-import { FaUser, FaUserTie, FaSearch, FaFilter } from 'react-icons/fa';
+import { FaUser, FaUserTie, FaSearch, FaFilter, FaTruck } from 'react-icons/fa';
 
 import { listVentas } from '../../api/ventas';
 import { listVendedores } from '../../api/vendedores';
 import { listCiudades } from '../../api/ciudades';
 import { listLocalidades } from '../../api/localidades';
 import { listBarrios } from '../../api/barrios';
+
+// ======================================================
+// Benjamin Orellana - 17-01-2026
+// Nuevo: Repartos (filtro por reparto en deudas)
+// ======================================================
+import { listRepartos } from '../../api/repartos';
+
 import SearchableSelect from '../../Components/Common/SearchableSelect';
 import { moneyAR } from '../../utils/money';
 
@@ -61,10 +68,10 @@ const VentasDeudasPage = () => {
 
   // --------- Filtros ---------
   const [q, setQ] = useState('');
-  const [tipo, setTipo] = useState('fiado'); // 'fiado' | 'a_cuenta'
+  const [tipo, setTipo] = useState('a_cuenta'); // 'fiado' | 'a_cuenta'
   const [estado, setEstado] = useState('confirmada'); // normalmente deudas = confirmada
 
-  // ❗ AHORA guardamos IDs numéricos, no objetos
+  // AHORA guardamos IDs numéricos, no objetos
   const [vendedorId, setVendedorId] = useState(null);
   const [ciudadId, setCiudadId] = useState(null);
   const [localidadId, setLocalidadId] = useState(null);
@@ -93,6 +100,16 @@ const VentasDeudasPage = () => {
   });
   const [loading, setLoading] = useState(false);
 
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Nuevo: filtro reparto
+  // ======================================================
+  const [repartoId, setRepartoId] = useState(null);
+
+  const [repartos, setRepartos] = useState([]);
+  const [repartosLoading, setRepartosLoading] = useState(false);
+  const [repartosError, setRepartosError] = useState('');
+
   // --------- Carga inicial de vendedores ---------
   useEffect(() => {
     (async () => {
@@ -101,8 +118,8 @@ const VentasDeudasPage = () => {
         const arr = Array.isArray(res?.data)
           ? res.data
           : Array.isArray(res)
-          ? res
-          : [];
+            ? res
+            : [];
         setVendedores(arr);
       } catch (err) {
         console.error('Error cargando vendedores:', err);
@@ -118,11 +135,41 @@ const VentasDeudasPage = () => {
         const arr = Array.isArray(res?.data)
           ? res.data
           : Array.isArray(res)
-          ? res
-          : [];
+            ? res
+            : [];
         setCiudades(arr);
       } catch (err) {
         console.error('Error cargando ciudades:', err);
+      }
+    })();
+  }, []);
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Cargar repartos (activos) para filtro
+  // Nota: traemos todos y filtramos en front por ciudadId si aplica.
+  // ======================================================
+  useEffect(() => {
+    (async () => {
+      try {
+        setRepartosLoading(true);
+        setRepartosError('');
+
+        const res = await listRepartos({ limit: 500 }); // si soporta estado: 'activo', podés agregarlo
+        const arr = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res)
+            ? res
+            : [];
+
+        // si tu endpoint devuelve inactivos, podés filtrar acá:
+        // const activos = arr.filter((r) => r.estado === 'activo');
+        setRepartos(arr);
+      } catch (err) {
+        console.error('Error cargando repartos:', err);
+        setRepartosError('No se pudieron cargar los repartos.');
+      } finally {
+        setRepartosLoading(false);
       }
     })();
   }, []);
@@ -146,8 +193,8 @@ const VentasDeudasPage = () => {
         const arr = Array.isArray(res?.data)
           ? res.data
           : Array.isArray(res)
-          ? res
-          : [];
+            ? res
+            : [];
         setLocalidades(arr);
         setLocalidadId(null);
         setBarrios([]);
@@ -175,8 +222,8 @@ const VentasDeudasPage = () => {
         const arr = Array.isArray(res?.data)
           ? res.data
           : Array.isArray(res)
-          ? res
-          : [];
+            ? res
+            : [];
         setBarrios(arr);
         setBarrioId(null);
       } catch (err) {
@@ -191,17 +238,75 @@ const VentasDeudasPage = () => {
       setLoading(true);
       setError('');
 
+      // -----------------------------
+      // Benjamin Orellana - 17-01-2026
+      // Sanitizar filtros para que "Todos" / "" no rompa deuda
+      // -----------------------------
+      const safeTipo = ['fiado', 'a_cuenta', 'contado'].includes(
+        String(tipo || '')
+      )
+        ? String(tipo)
+        : undefined;
+
+      const safeEstado = ['confirmada', 'anulada'].includes(
+        String(estado || '')
+      )
+        ? String(estado)
+        : undefined;
+
+      const safeVendedorId =
+        vendedorId !== null && vendedorId !== undefined && vendedorId !== ''
+          ? Number(vendedorId)
+          : undefined;
+
+      const safeCiudadId =
+        ciudadId !== null && ciudadId !== undefined && ciudadId !== ''
+          ? Number(ciudadId)
+          : undefined;
+
+      const safeLocalidadId =
+        localidadId !== null && localidadId !== undefined && localidadId !== ''
+          ? Number(localidadId)
+          : undefined;
+
+      const safeBarrioId =
+        barrioId !== null && barrioId !== undefined && barrioId !== ''
+          ? Number(barrioId)
+          : undefined;
+
+      const safeRepartoId =
+        repartoId !== null && repartoId !== undefined && repartoId !== ''
+          ? Number(repartoId)
+          : undefined;
+
+      // OJO fechas: idealmente que fechaDesde/fechaHasta ya sean YYYY-MM-DD
+      // Si vienen como Date, convertí; si vienen dd/mm/aaaa, convertí antes.
       const params = {
-        q: q || undefined,
-        tipo: tipo || undefined, // fiado / a_cuenta
-        estado: estado || undefined, // confirmada / anulada
-        vendedor_id: vendedorId || undefined,
+        // sólo ventas con saldo pendiente
+        deuda: '1',
+        saldo_min: '0.01',
+
+        q: q?.trim() ? q.trim() : undefined,
+        tipo: safeTipo,
+        estado: safeEstado,
+        vendedor_id: Number.isFinite(safeVendedorId)
+          ? safeVendedorId
+          : undefined,
         desde: fechaDesde || undefined,
         hasta: fechaHasta || undefined,
+
         // Geografía
-        ciudad_id: ciudadId || undefined,
-        localidad_id: localidadId || undefined,
-        barrio_id: barrioId || undefined,
+        ciudad_id: Number.isFinite(safeCiudadId) ? safeCiudadId : undefined,
+        localidad_id: Number.isFinite(safeLocalidadId)
+          ? safeLocalidadId
+          : undefined,
+        barrio_id: Number.isFinite(safeBarrioId) ? safeBarrioId : undefined,
+        // ======================================================
+        // Benjamin Orellana - 17-01-2026
+        // Filtro por reparto
+        // ======================================================
+        reparto_id: Number.isFinite(safeRepartoId) ? safeRepartoId : undefined,
+
         page,
         limit: 20
       };
@@ -209,11 +314,13 @@ const VentasDeudasPage = () => {
       console.log('Params de búsqueda (deudas):', params);
 
       const res = await listVentas(params);
+
       const rows = Array.isArray(res?.data)
         ? res.data
         : Array.isArray(res)
-        ? res
-        : [];
+          ? res
+          : [];
+
       const metaRes = res?.meta || {};
 
       setVentas(rows);
@@ -238,7 +345,6 @@ const VentasDeudasPage = () => {
   // Carga inicial
   useEffect(() => {
     fetchVentas(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleBuscar = () => {
@@ -267,6 +373,25 @@ const VentasDeudasPage = () => {
     const ticketPromedio = cantidad > 0 ? totalDeudas / cantidad : 0;
     return { totalDeudas, cantidad, ticketPromedio };
   }, [ventas]);
+
+  // ======================================================
+  // Benjamin Orellana - 17-01-2026
+  // Repartos filtrados por ciudad (si hay ciudadId seleccionado)
+  // ======================================================
+  const repartosFiltrados = useMemo(() => {
+    const base = Array.isArray(repartos) ? repartos : [];
+    if (!ciudadId) return base;
+    return base.filter((r) => Number(r?.ciudad_id) === Number(ciudadId));
+  }, [repartos, ciudadId]);
+
+  // Mapa rápido para resolver reparto por id en la tabla
+  const repartoById = useMemo(() => {
+    const m = new Map();
+    (Array.isArray(repartos) ? repartos : []).forEach((r) => {
+      if (r?.id != null) m.set(Number(r.id), r);
+    });
+    return m;
+  }, [repartos]);
 
   return (
     <>
@@ -347,10 +472,10 @@ const VentasDeudasPage = () => {
                 <span className="text-sm font-semibold">Filtros</span>
               </div>
 
-              {/* Primera fila: texto, tipo, estado, vendedor */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {/* Primera fila: texto, reparto, tipo, estado, vendedor */}
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                 {/* Búsqueda texto */}
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-medium text-gray-500 mb-1">
                     Buscar (cliente / doc / email)
                   </label>
@@ -359,11 +484,54 @@ const VentasDeudasPage = () => {
                       value={q}
                       onChange={(e) => setQ(e.target.value)}
                       className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
-                                 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                   placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
                       placeholder="Ej: Benjamín, 20-4384..."
                     />
                     <FaSearch className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
                   </div>
+                </div>
+
+                {/* ======================================================
+      Benjamin Orellana - 17-01-2026
+      Filtro Reparto
+    ====================================================== */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    <span className="inline-flex items-center gap-2">
+                      <FaTruck className="text-gray-500" />
+                      Reparto
+                    </span>
+                  </label>
+
+                  <select
+                    value={repartoId ?? ''}
+                    onChange={(e) => setRepartoId(e.target.value || null)}
+                    disabled={repartosLoading}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
+                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {repartosLoading
+                        ? 'Cargando…'
+                        : ciudadId
+                          ? 'Todos (de esta ciudad)'
+                          : 'Todos'}
+                    </option>
+
+                    {repartosFiltrados.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.nombre}{' '}
+                        {r?.ciudad?.nombre ? `· ${r.ciudad.nombre}` : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {repartosError && (
+                    <p className="mt-1 text-[11px] text-rose-600/90">
+                      {repartosError}
+                    </p>
+                  )}
                 </div>
 
                 {/* Tipo */}
@@ -375,7 +543,7 @@ const VentasDeudasPage = () => {
                     value={tipo}
                     onChange={(e) => setTipo(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
-                               focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
                   >
                     <option value="fiado">Fiado</option>
                     <option value="a_cuenta">A cuenta</option>
@@ -391,7 +559,7 @@ const VentasDeudasPage = () => {
                     value={estado}
                     onChange={(e) => setEstado(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
-                               focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
                   >
                     <option value="">Todos</option>
                     <option value="confirmada">Confirmada</option>
@@ -573,6 +741,10 @@ const VentasDeudasPage = () => {
                         Vendedor
                       </th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                        Reparto
+                      </th>
+
+                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
                         Tipo
                       </th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-600">
@@ -580,6 +752,12 @@ const VentasDeudasPage = () => {
                       </th>
                       <th className="px-4 py-2 text-right font-semibold text-gray-600">
                         Total neto
+                      </th>
+                      <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                        A cuenta
+                      </th>
+                      <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                        Saldo
                       </th>
                     </tr>
                   </thead>
@@ -595,70 +773,120 @@ const VentasDeudasPage = () => {
                       </tr>
                     )}
 
-                    {ventas.map((v) => (
-                      <tr
-                        key={v.id}
-                        className="border-b border-gray-100 hover:bg-orange-50/40 transition"
-                      >
-                        <td className="px-4 py-2 text-gray-700">#{v.id}</td>
-                        <td className="px-4 py-2 text-gray-700">
-                          {fmtFecha(v.fecha)}
-                        </td>
+                    {ventas.map((v) => {
+                      const totalNeto = Number(v.total_neto ?? 0);
+                      const aCuenta = Number(v.monto_a_cuenta ?? 0);
+                      const saldo = Math.max(0, totalNeto - aCuenta);
 
-                        {/* Cliente */}
-                        <td className="px-4 py-2 text-gray-800">
-                          <div className="flex items-center gap-2">
-                            <FaUser className="text-gray-400 text-xs" />
-                            <div className="flex flex-col leading-tight">
-                              <span className="font-medium">
-                                {v.cliente?.nombre || '—'}
-                              </span>
-                              {v.cliente?.documento && (
-                                <span className="text-[11px] text-gray-500">
-                                  {v.cliente.documento}
+                      const tipoUI =
+                        v.tipo === 'fiado' && aCuenta > 0 ? 'a_cuenta' : v.tipo;
+
+                      return (
+                        <tr
+                          key={v.id}
+                          className="border-b border-gray-100 hover:bg-orange-50/40 transition"
+                        >
+                          <td className="px-4 py-2 text-gray-700">#{v.id}</td>
+
+                          <td className="px-4 py-2 text-gray-700">
+                            {fmtFecha(v.fecha)}
+                          </td>
+
+                          {/* Cliente */}
+                          <td className="px-4 py-2 text-gray-800">
+                            <div className="flex items-center gap-2">
+                              <FaUser className="text-gray-400 text-xs" />
+                              <div className="flex flex-col leading-tight">
+                                <span className="font-medium">
+                                  {v.cliente?.nombre || '—'}
                                 </span>
-                              )}
+                                {v.cliente?.documento && (
+                                  <span className="text-[11px] text-gray-500">
+                                    {v.cliente.documento}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Vendedor */}
-                        <td className="px-4 py-2 text-gray-800">
-                          <div className="flex items-center gap-2">
-                            <FaUserTie className="text-gray-400 text-xs" />
-                            <span className="font-medium">
-                              {v.vendedor?.nombre || '—'}
+                          {/* Vendedor */}
+                          <td className="px-4 py-2 text-gray-800">
+                            <div className="flex items-center gap-2">
+                              <FaUserTie className="text-gray-400 text-xs" />
+                              <span className="font-medium">
+                                {v.vendedor?.nombre || '—'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Reparto */}
+                          <td className="px-4 py-2 text-gray-800">
+                            {(() => {
+                              const rid = Number(v.reparto_id || 0);
+                              if (!rid)
+                                return <span className="text-gray-400">—</span>;
+
+                              const rep = repartoById.get(rid);
+                              if (!rep) {
+                                return (
+                                  <span className="text-gray-500">#{rid}</span>
+                                );
+                              }
+
+                              return (
+                                <div className="flex flex-col leading-tight">
+                                  <span className="font-medium">
+                                    {rep.nombre}
+                                  </span>
+                                  {rep?.ciudad?.nombre && (
+                                    <span className="text-[11px] text-gray-500">
+                                      {rep.ciudad.nombre}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+
+                          <td className="px-4 py-2">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                badgeTipoClasses[tipoUI] ||
+                                'bg-gray-100 text-gray-700 border-gray-200'
+                              }`}
+                            >
+                              {tipoUI}
                             </span>
-                          </div>
-                        </td>
+                          </td>
 
-                        <td className="px-4 py-2">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
-                              badgeTipoClasses[v.tipo] ||
-                              'bg-gray-100 text-gray-700 border-gray-200'
-                            }`}
-                          >
-                            {v.tipo}
-                          </span>
-                        </td>
+                          <td className="px-4 py-2">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                badgeEstadoClasses[v.estado] ||
+                                'bg-gray-100 text-gray-700 border-gray-200'
+                              }`}
+                            >
+                              {v.estado}
+                            </span>
+                          </td>
 
-                        <td className="px-4 py-2">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
-                              badgeEstadoClasses[v.estado] ||
-                              'bg-gray-100 text-gray-700 border-gray-200'
-                            }`}
-                          >
-                            {v.estado}
-                          </span>
-                        </td>
+                          {/* Total neto */}
+                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                            {moneyAR(totalNeto)}
+                          </td>
 
-                        <td className="px-4 py-2 text-right font-semibold text-gray-900">
-                          {moneyAR(v.total_neto || 0)}
-                        </td>
-                      </tr>
-                    ))}
+                          {/* A cuenta */}
+                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                            {moneyAR(aCuenta)}
+                          </td>
+
+                          {/* Saldo (lo que debe) */}
+                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                            {moneyAR(saldo)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -695,6 +923,6 @@ const VentasDeudasPage = () => {
       </section>
     </>
   );
-};
+};;
 
 export default VentasDeudasPage;

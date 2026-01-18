@@ -46,10 +46,10 @@ const NavbarStaff = () => {
     currentRole === 'admin' || currentRole === 'administrador'
       ? 'Administrador'
       : currentRole === 'socio'
-      ? 'Socio'
-      : currentRole === 'empleado'
-      ? 'Empleado'
-      : currentRole || 'Staff';
+        ? 'Socio'
+        : currentRole === 'empleado'
+          ? 'Empleado'
+          : currentRole || 'Staff';
 
   // Derivar nombre para saludo/avatar
   const displayUserName = useMemo(() => {
@@ -136,10 +136,7 @@ const NavbarStaff = () => {
               />
             </Link>
             <div className="hidden sm:flex flex-col">
-              <span className="text-[11px] uppercase tracking-[0.22em] text-white/50">
-                Backoffice
-              </span>
-              <span className="text-sm font-semibold text-white/90">
+              <span className="text-sm titulo uppercase font-semibold text-white/90">
                 Panel Administrativo
               </span>
             </div>

@@ -5,26 +5,20 @@ import http from './http';
 
 /** Lista clientes asignados a un reparto */
 export async function listClientesDeReparto(repartoId, params = {}) {
-  if (!repartoId) {
-    throw new Error('repartoId es requerido');
-  }
+  if (!repartoId) throw new Error('repartoId es requerido');
 
   const merged = {
-    // filtros/paginación que ya le venías pasando
-    ...params,
+    estado: 'activo',      // default: NO traer inactivos
+    ...params,             // si params.estado viene, pisa el default
     reparto_id: repartoId,
-    withCliente: 1, // para que incluya info del cliente si tu controlador lo soporta
+    withCliente: 1,
     withReparto: 0
   };
 
   try {
-    const { data } = await http.get('/repartos-clientes', {
-      params: merged
-    });
-    // backend: { data: [...], meta: {...} }
+    const { data } = await http.get('/repartos-clientes', { params: merged });
     return data;
   } catch (err) {
-    // Si más adelante tu backend devuelve NOT_FOUND cuando no haya nada, lo tratamos como lista vacía.
     if (
       err?.code === 'NOT_FOUND' ||
       (err?.code === 'NETWORK' && err?.details?.status === 404)
@@ -32,18 +26,9 @@ export async function listClientesDeReparto(repartoId, params = {}) {
       const lim = merged.limit ? Number(merged.limit) || 50 : 50;
       return {
         data: [],
-        meta: {
-          total: 0,
-          page: 1,
-          limit: lim,
-          totalPages: 1,
-          hasPrev: false,
-          hasNext: false
-        }
+        meta: { total: 0, page: 1, limit: lim, totalPages: 1, hasPrev: false, hasNext: false }
       };
     }
-
-    // Otros errores: realmente algo anda mal
     throw err;
   }
 }

@@ -1,8 +1,9 @@
 // FILE: src/Components/Ventas/VentaRepartoFormModal.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
+  Search,
   ShoppingCart,
   CalendarDays,
   BadgeDollarSign,
@@ -76,6 +77,73 @@ export default function VentaRepartoFormModal({
     [clientes, clientesExcluidos]
   );
 
+  // Benjamin Orellana - 17/01/2026 - Buscador por cliente (nombre/rango) + selección rápida para enfocar "A cuenta"
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [clienteSelectedId, setClienteSelectedId] = useState(null);
+
+  // Refs para scrollear y hacer focus directo al "A cuenta" del cliente seleccionado
+  const clienteCardRefs = useRef({});
+  const aCuentaInputRefs = useRef({});
+
+  const setClienteCardRef = (clienteId) => (el) => {
+    const idNum = Number(clienteId);
+    if (!Number.isFinite(idNum) || idNum <= 0) return;
+    if (el) clienteCardRefs.current[idNum] = el;
+    else delete clienteCardRefs.current[idNum];
+  };
+
+  const setACuentaInputRef = (clienteId) => (el) => {
+    const idNum = Number(clienteId);
+    if (!Number.isFinite(idNum) || idNum <= 0) return;
+    if (el) aCuentaInputRefs.current[idNum] = el;
+    else delete aCuentaInputRefs.current[idNum];
+  };
+
+  const clientesUI = useMemo(() => {
+    const q = String(clienteSearch || '')
+      .trim()
+      .toLowerCase();
+    if (!q) return clientesVisibles || [];
+
+    const isNum = /^[0-9]+$/.test(q);
+    const qNumStr = isNum ? q : null;
+
+    return (clientesVisibles || []).filter((c) => {
+      const nombre = String(c?.nombre || '').toLowerCase();
+      const rango = c?.rango != null ? String(c.rango) : '';
+      if (isNum) return rango.startsWith(qNumStr);
+      return nombre.includes(q);
+    });
+  }, [clientesVisibles, clienteSearch]);
+
+  useEffect(() => {
+    if (!clienteSearch?.trim()) return;
+    if (clienteSelectedId == null) return;
+    const stillVisible = (clientesUI || []).some(
+      (c) => Number(c.id) === Number(clienteSelectedId)
+    );
+    if (!stillVisible) setClienteSelectedId(null);
+  }, [clientesUI, clienteSelectedId, clienteSearch]);
+
+  const handleSelectCliente = (clienteId) => {
+    const idNum = Number(clienteId);
+    if (!Number.isFinite(idNum) || idNum <= 0) return;
+    setClienteSelectedId(idNum);
+
+    // Focus inmediato al "A cuenta" del cliente y scroll suave al bloque derecho
+    requestAnimationFrame(() => {
+      const card = clienteCardRefs.current[idNum];
+      if (card?.scrollIntoView) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      const input = aCuentaInputRefs.current[idNum];
+      if (input?.focus) {
+        input.focus();
+        if (input?.select) input.select();
+      }
+    });
+  };
+
   const [aCuentaPorCliente, setACuentaPorCliente] = useState({});
 
   const handleACuentaChange = (clienteId, rawValue) => {
@@ -98,6 +166,10 @@ export default function VentaRepartoFormModal({
   useEffect(() => {
     if (!open) return;
     setClientesExcluidos([]);
+    setClienteSearch('');
+    setClienteSelectedId(null);
+    clienteCardRefs.current = {};
+    aCuentaInputRefs.current = {};
   }, [open, repartoId]);
 
   // Productos
@@ -112,7 +184,6 @@ export default function VentaRepartoFormModal({
   // Datos generales de la venta
   const [fecha, setFecha] = useState(todayISODate());
   const [tipoVenta, setTipoVenta] = useState('fiado'); // contado | fiado | a_cuenta
-  const [observaciones, setObservaciones] = useState('');
 
   // Cantidades por cliente-producto: { `${clienteId}-${productoId}`: number }
   const [cantidades, setCantidades] = useState({});
@@ -123,9 +194,10 @@ export default function VentaRepartoFormModal({
     setSaving(false);
     setFecha(todayISODate());
     setTipoVenta('fiado');
-    setObservaciones('');
     setCantidades({});
     setVendedorId(user?.id || ''); //  default = usuario logueado
+    setClienteSearch('');
+    setClienteSelectedId(null);
   }, [open, user]);
 
   // Cargar repartos cuando se abre
@@ -154,7 +226,7 @@ export default function VentaRepartoFormModal({
         });
       }
     })();
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Cargar clientes del reparto
   useEffect(() => {
@@ -171,7 +243,29 @@ export default function VentaRepartoFormModal({
           limit: 500
         });
         const rows = resp?.data || resp || [];
-        const cli = rows.map((rc) => rc.cliente || rc);
+        const cli = rows.map((rc, idx) => {
+          const base = rc?.cliente || rc || {};
+
+          // Intentamos preservar el "rango"/orden del cliente dentro del reparto.
+          // Si no viene desde el backend, caemos al índice + 1 (orden recibido).
+          const rangoRaw =
+            rc?.rango ??
+            rc?.rango_cliente ??
+            rc?.numero_rango ??
+            rc?.orden ??
+            rc?.posicion ??
+            base?.rango ??
+            base?.orden ??
+            null;
+
+          const rangoNum = Number(rangoRaw);
+          const rango =
+            rangoRaw == null || rangoRaw === '' || !Number.isFinite(rangoNum)
+              ? idx + 1
+              : rangoNum;
+
+          return { ...base, rango };
+        });
         setClientes(cli);
       } catch (err) {
         console.error('Error cargando clientes de reparto:', err);
@@ -308,6 +402,31 @@ export default function VentaRepartoFormModal({
   const ciudadNombre =
     repartoSelected?.ciudad?.nombre || repartoSelected?.ciudad_nombre || '—';
 
+  const selectedReparto = useMemo(() => {
+    const idNum = Number(repartoId);
+    return repartos.find((r) => Number(r.id) === idNum) || null;
+  }, [repartoId, repartos]);
+
+  const rangoText = useMemo(() => {
+    const min = selectedReparto?.rango_min;
+    const max = selectedReparto?.rango_max;
+    if (min == null || max == null) return null;
+    return `${min} – ${max}`;
+  }, [selectedReparto]);
+
+  const capacidad = useMemo(() => {
+    const min = selectedReparto?.rango_min;
+    const max = selectedReparto?.rango_max;
+    if (min == null || max == null) return null;
+    return Number(max) - Number(min) + 1;
+  }, [selectedReparto]);
+
+  const ciudadNombreSafe =
+    ciudadNombre ||
+    selectedReparto?.ciudad_nombre ||
+    selectedReparto?.ciudad?.nombre ||
+    '—';
+
   const tipoVentaLabel = {
     contado: 'Contado',
     fiado: 'Fiado',
@@ -378,11 +497,11 @@ export default function VentaRepartoFormModal({
     }
 
     const payload = {
-      reparto_id: repartoSelected.id,
       fecha: `${fecha}T00:00:00`,
       tipo: tipoVenta, // contado | fiado | a_cuenta (para este caso, "fiado")
       vendedor_id: vendedorIdNum,
-      observaciones: observaciones?.trim() || null,
+      reparto_id: repartoId,
+      observaciones: null,
       items
     };
 
@@ -414,6 +533,43 @@ export default function VentaRepartoFormModal({
       setSaving(false);
     }
   };
+
+  // Benjamin Orellana - 17/01/2026 - Helper: formato moneda AR (miles '.' y decimales ',')
+  function formatArMoney(value, opts = {}) {
+    const {
+      currency = 'ARS',
+      minimumFractionDigits = 2,
+      maximumFractionDigits = 2,
+      withSymbol = true
+    } = opts;
+
+    // Normaliza: number | string | null
+    let n;
+    if (typeof value === 'number') n = value;
+    else if (typeof value === 'string') {
+      // Permite "$ 1.234,56" o "1234,56" o "1234.56"
+      const cleaned = value
+        .trim()
+        .replace(/\$/g, '')
+        .replace(/\s/g, '')
+        .replace(/\./g, '') // quita miles
+        .replace(',', '.'); // decimal AR -> decimal JS
+      n = Number(cleaned);
+    } else {
+      n = Number(value);
+    }
+
+    if (!Number.isFinite(n)) n = 0;
+
+    const formatter = new Intl.NumberFormat('es-AR', {
+      style: withSymbol ? 'currency' : 'decimal',
+      currency,
+      minimumFractionDigits,
+      maximumFractionDigits
+    });
+
+    return formatter.format(n);
+  }
 
   return (
     <AnimatePresence>
@@ -462,7 +618,7 @@ export default function VentaRepartoFormModal({
               >
                 <motion.h3
                   variants={fieldV}
-                  className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight text-teal-50 flex flex-wrap items-center gap-2"
+                  className="text-xl titulo uppercase mb-2 sm:text-2xl md:text-3xl font-bold tracking-tight text-teal-50 flex flex-wrap items-center gap-2"
                 >
                   <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-500/20 border border-teal-300/40">
                     <ShoppingCart className="h-5 w-5 text-teal-300" />
@@ -478,98 +634,163 @@ export default function VentaRepartoFormModal({
                 {/* Info superior */}
                 <motion.div
                   variants={fieldV}
-                  className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4 text-xs sm:text-sm text-teal-50/90"
+                  className="grid w-full items-start
+             gap-3 sm:gap-4 lg:gap-5
+             sm:grid-cols-2 lg:grid-cols-12
+             text-xs sm:text-sm text-teal-50/90
+             px-1 sm:px-2 lg:px-3"
                 >
                   {/* Reparto select */}
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 min-w-0 lg:col-span-4">
                     <span className="uppercase text-[10px] tracking-widest text-teal-200/80">
                       Reparto
                     </span>
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-2 min-w-0">
                       <Truck className="h-4 w-4 text-teal-200 shrink-0" />
+
                       <select
                         value={repartoId}
                         onChange={(e) => setRepartoId(e.target.value)}
-                        className="flex-1 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
-                                   focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                        className="flex-1 min-w-0 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
+                 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
                       >
                         <option value="">Seleccionar reparto…</option>
-                        {repartos.map((r) => (
-                          <option
-                            key={r.id}
-                            value={r.id}
-                            className="text-black"
-                          >
-                            {r.nombre}{' '}
-                            {r.ciudad_nombre ? `(${r.ciudad_nombre})` : ''}
-                          </option>
-                        ))}
+
+                        {repartos.map((r) => {
+                          const c = r?.ciudad_nombre || r?.ciudad?.nombre;
+                          const min = r?.rango_min;
+                          const max = r?.rango_max;
+                          const rango =
+                            min != null && max != null
+                              ? ` • ${min}–${max}`
+                              : '';
+
+                          return (
+                            <option
+                              key={r.id}
+                              value={r.id}
+                              className="text-black"
+                            >
+                              {r.nombre}
+                              {c ? ` (${c})` : ''}
+                              {rango}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
-                    <span className="text-[11px] text-teal-100/70">
-                      Ciudad: {ciudadNombre}
-                    </span>
+
+                    {/* Resumen contextual */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-teal-100/70">
+                      <span>Ciudad: {ciudadNombreSafe}</span>
+
+                      {rangoText && (
+                        <>
+                          <span className="opacity-40">•</span>
+                          <span>
+                            Rango:{' '}
+                            <span className="text-teal-50 font-semibold">
+                              {rangoText}
+                            </span>
+                          </span>
+                        </>
+                      )}
+
+                      {capacidad != null && (
+                        <>
+                          <span className="opacity-40">•</span>
+                          <span>
+                            Capacidad:{' '}
+                            <span className="text-teal-50 font-semibold">
+                              {capacidad}
+                            </span>
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* Fecha */}
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 min-w-0 lg:col-span-3">
                     <span className="uppercase text-[10px] tracking-widest text-teal-200/80">
                       Fecha de venta
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <CalendarDays className="h-4 w-4 text-teal-200 shrink-0" />
                       <input
                         type="date"
                         value={fecha}
                         onChange={(e) => setFecha(e.target.value)}
-                        className="flex-1 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
-                                   focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                        className="flex-1 min-w-0 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
+                   focus:outline-none focus:ring-2 focus:ring-teal-400/60"
                       />
                     </div>
                   </div>
 
                   {/* Tipo de venta */}
-                  <div className="flex flex-col gap-1">
+                  {/* <div className="flex flex-col gap-1">
+    <span className="uppercase text-[10px] tracking-widest text-teal-200/80">
+      Tipo de venta
+    </span>
+    <div className="inline-flex rounded-full bg-slate-950/70 border border-teal-500/40 p-1">
+      {[
+        { value: 'contado', label: 'Contado' },
+        { value: 'fiado', label: 'Fiado' },
+        { value: 'a_cuenta', label: 'A cuenta' }
+      ].map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => setTipoVenta(opt.value)}
+          className={`px-3 py-1 text-[11px] rounded-full transition
+            ${
+              tipoVenta === opt.value
+                ? 'bg-teal-500 text-white shadow-sm'
+                : 'text-teal-100'
+            }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+    <span className="text-[11px] text-teal-100/75">
+      Seleccionado: {tipoVentaLabel}
+    </span>
+  </div> */}
+
+                  {/* Tipo de venta */}
+                  <div className="flex flex-col gap-1 min-w-0 lg:col-span-2 lg:justify-self-center">
                     <span className="uppercase text-[10px] tracking-widest text-teal-200/80">
                       Tipo de venta
                     </span>
-                    <div className="inline-flex rounded-full bg-slate-950/70 border border-teal-500/40 p-1">
-                      {[
-                        { value: 'contado', label: 'Contado' },
-                        { value: 'fiado', label: 'Fiado' },
-                        { value: 'a_cuenta', label: 'A cuenta' }
-                      ].map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setTipoVenta(opt.value)}
-                          className={`px-3 py-1 text-[11px] rounded-full transition
-                            ${
-                              tipoVenta === opt.value
-                                ? 'bg-teal-500 text-white shadow-sm'
-                                : 'text-teal-100'
-                            }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+
+                    {/* Solo 1 opción: mostrar como badge fijo por pedido de Sale */}
+                    <div className="inline-flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-full bg-slate-950/70 border border-teal-500/40 px-3 py-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-teal-400 shadow-[0_0_0_3px_rgba(45,212,191,0.12)]" />
+                        <span className="ml-2 text-[11px] font-semibold text-teal-50">
+                          Fiado
+                        </span>
+                      </span>
                     </div>
+
                     <span className="text-[11px] text-teal-100/75">
                       Seleccionado: {tipoVentaLabel}
                     </span>
                   </div>
 
                   {/* Vendedor + total  */}
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 min-w-0 lg:col-span-3">
                     <span className="uppercase text-[10px] tracking-widest text-teal-200/80">
                       Vendedor / Total estimado
                     </span>
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 min-w-0">
                       <select
                         value={vendedorId}
                         onChange={(e) => setVendedorId(e.target.value)}
-                        className="flex-1 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
-                                   focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                        className="flex-1 min-w-0 rounded-xl border border-white/10 bg-slate-950/70 px-3 py-1.5 text-xs sm:text-sm text-teal-50
+                   focus:outline-none focus:ring-2 focus:ring-teal-400/60"
                       >
                         <option value="">Seleccionar vendedor…</option>
                         {vendedores.map((v) => (
@@ -586,34 +807,66 @@ export default function VentaRepartoFormModal({
                         <div className="h-5 w-5 rounded-full border-2 border-teal-300/60 border-t-transparent animate-spin" />
                       )}
                     </div>
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
                       <span className="text-[11px] text-teal-100/80 truncate">
                         Vendedor:{' '}
                         <span className="font-medium">{vendedorNombreUI}</span>
                       </span>
-                      <div className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/15 border border-emerald-400/60 px-2.5 py-1">
-                        <BadgeDollarSign className="h-4 w-4 text-emerald-300" />
-                        <span className="text-xs font-semibold text-emerald-100">
-                          ${totalGeneral.toFixed(2)}
-                        </span>
-                      </div>
+                    </div>
+                    <div className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/15 border border-emerald-400/60 px-2.5 py-1 shrink-0">
+                      <BadgeDollarSign className="h-4 w-4 text-emerald-300" />
+                      <span className="text-xs font-semibold text-emerald-100">
+                        {formatArMoney(totalGeneral)}
+                      </span>
                     </div>
                   </div>
                 </motion.div>
 
-                {/* Observaciones */}
+                {/* Benjamin Orellana - 17/01/2026 - Buscador de clientes (reemplaza Observaciones generales) */}
                 <motion.div variants={fieldV} className="mt-3">
                   <label className="block text-xs sm:text-sm font-medium text-teal-50 mb-1.5">
-                    Observaciones generales
+                    Buscar cliente (por nombre o rango)
                   </label>
-                  <textarea
-                    value={observaciones}
-                    onChange={(e) => setObservaciones(e.target.value)}
-                    rows={2}
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-xs sm:text-sm text-teal-50
-                               placeholder-teal-100/50 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
-                    placeholder="Notas generales de esta vuelta de reparto (opcional)…"
-                  />
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-teal-200/70" />
+
+                    <input
+                      value={clienteSearch}
+                      onChange={(e) => setClienteSearch(e.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-slate-950/70 pl-10 pr-10 py-2 text-xs sm:text-sm text-teal-50
+                                 placeholder-teal-100/50 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                      placeholder="Ej: 12 o Nombre…"
+                    />
+
+                    {!!clienteSearch?.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClienteSearch('');
+                          setClienteSelectedId(null);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-lg
+                                   border border-white/10 bg-white/5 hover:bg-white/10 transition"
+                        title="Limpiar búsqueda"
+                      >
+                        <X className="h-4 w-4 text-teal-50/90" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-teal-100/70">
+                    <span className="truncate">
+                      Tip: escribí el número de rango (ej: 12) o parte del
+                      nombre.
+                    </span>
+                    {!!clienteSearch?.trim() && (
+                      <span className="shrink-0">
+                        Mostrando {clientesUI.length} de{' '}
+                        {clientesVisibles.length}
+                      </span>
+                    )}
+                  </div>
                 </motion.div>
               </motion.div>
 
@@ -633,7 +886,14 @@ export default function VentaRepartoFormModal({
                           Clientes del reparto
                         </div>
                         <div className="text-sm text-teal-50/90">
-                          {clientesVisibles.length} cliente(s)
+                          {!clienteSearch?.trim() ? (
+                            <>{clientesVisibles.length} cliente(s)</>
+                          ) : (
+                            <>
+                              Mostrando {clientesUI.length} de{' '}
+                              {clientesVisibles.length}
+                            </>
+                          )}
                         </div>
                       </div>
                       {loadingClientes && (
@@ -642,16 +902,23 @@ export default function VentaRepartoFormModal({
                     </div>
 
                     <div className="flex-1 min-h-[180px] max-h-[340px] overflow-y-auto space-y-2 pr-1">
-                      {!clientesVisibles.length && !loadingClientes ? (
+                      {!clientesUI.length && !loadingClientes ? (
                         <div className="text-xs text-teal-100/70 italic">
-                          Este reparto no tiene clientes seleccionados para esta
-                          vuelta.
+                          {clienteSearch?.trim()
+                            ? 'No se encontraron clientes con ese criterio.'
+                            : 'Este reparto no tiene clientes seleccionados para esta vuelta.'}
                         </div>
                       ) : (
-                        clientesVisibles.map((cli) => (
+                        clientesUI.map((cli) => (
                           <div
                             key={cli.id}
-                            className="rounded-xl border border-teal-500/30 bg-slate-950/80 px-3 py-2 text-xs text-teal-50 flex flex-col gap-1.5"
+                            onClick={() => handleSelectCliente(cli.id)}
+                            className={`rounded-xl border bg-slate-950/80 px-3 py-2 text-xs text-teal-50 flex flex-col gap-1.5 cursor-pointer transition
+	                              ${
+                                  Number(clienteSelectedId) === Number(cli.id)
+                                    ? 'border-teal-300/60 ring-2 ring-teal-400/40'
+                                    : 'border-teal-500/30 hover:border-teal-300/40'
+                                }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0">
@@ -661,13 +928,18 @@ export default function VentaRepartoFormModal({
                                 <div className="text-[11px] text-teal-100/70 truncate">
                                   {cli.documento && `DNI: ${cli.documento} · `}
                                   {cli.barrio?.nombre || '—'}
+                                  {cli.rango != null &&
+                                    ` · Rango: ${cli.rango}`}
                                 </div>
                               </div>
 
                               {/* Botón quitar cliente SOLO para esta vuelta */}
                               <button
                                 type="button"
-                                onClick={() => handleOcultarCliente(cli.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOcultarCliente(cli.id);
+                                }}
                                 className="inline-flex h-7 w-7 items-center justify-center rounded-lg
                        border border-red-500/40 bg-transparent hover:bg-red-500/10
                        text-red-200/80 transition"
@@ -680,7 +952,7 @@ export default function VentaRepartoFormModal({
                             <div className="text-[11px] text-teal-100/80">
                               Subtotal:{' '}
                               <span className="font-semibold text-emerald-300">
-                                ${subtotalesPorCliente[cli.id]?.toFixed(2)}
+                                {formatArMoney(subtotalesPorCliente[cli.id])}
                               </span>
                             </div>
                           </div>
@@ -711,15 +983,16 @@ export default function VentaRepartoFormModal({
                     </div>
 
                     <div className="flex-1 min-h-[220px] max-h-[380px] overflow-y-auto rounded-xl border border-cyan-400/25 bg-slate-950/70 px-2 py-2">
-                      {(!productos.length || !clientesVisibles.length) &&
+                      {(!productos.length || !clientesUI.length) &&
                       !loadingProductos ? (
                         <div className="py-10 text-center text-xs text-cyan-100/75">
-                          Necesitás al menos un cliente visible con productos
-                          activos para cargar ventas.
+                          {clienteSearch?.trim()
+                            ? 'No hay clientes que coincidan con la búsqueda.'
+                            : 'Necesitás al menos un cliente visible con productos activos para cargar ventas.'}
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {clientesVisibles.map((cli) => {
+                          {clientesUI.map((cli) => {
                             const subtotalCli =
                               subtotalesPorCliente[cli.id] ?? 0;
                             const aCuentaCli = Number(
@@ -733,7 +1006,14 @@ export default function VentaRepartoFormModal({
                             return (
                               <div
                                 key={cli.id}
-                                className="rounded-xl border border-cyan-500/35 bg-slate-950/70 px-3 py-2"
+                                ref={setClienteCardRef(cli.id)}
+                                className={`rounded-xl border bg-slate-950/70 px-3 py-2 transition
+	                                  ${
+                                      Number(clienteSelectedId) ===
+                                      Number(cli.id)
+                                        ? 'border-cyan-300/60 ring-2 ring-cyan-400/35'
+                                        : 'border-cyan-500/35'
+                                    }`}
                               >
                                 {/* Cabecera cliente + montos */}
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
@@ -744,7 +1024,7 @@ export default function VentaRepartoFormModal({
                                     <span className="text-[11px] text-cyan-100/80 block">
                                       Subtotal mercadería:{' '}
                                       <span className="font-semibold text-emerald-300">
-                                        ${subtotalCli.toFixed(2)}
+                                        {formatArMoney(subtotalCli)}
                                       </span>
                                     </span>
                                   </div>
@@ -755,10 +1035,14 @@ export default function VentaRepartoFormModal({
                                       A cuenta:
                                     </span>
                                     <input
+                                      ref={setACuentaInputRef(cli.id)}
                                       type="number"
                                       min="0"
                                       step="0.01"
                                       value={aCuentaCli || ''}
+                                      onFocus={() =>
+                                        setClienteSelectedId(Number(cli.id))
+                                      }
                                       onChange={(e) =>
                                         handleACuentaChange(
                                           cli.id,
@@ -776,7 +1060,7 @@ export default function VentaRepartoFormModal({
                                 <div className="text-[11px] text-emerald-200 mb-2">
                                   Saldo fiado:{' '}
                                   <span className="font-semibold">
-                                    ${saldoCli.toFixed(2)}
+                                    {formatArMoney(saldoCli)}
                                   </span>
                                 </div>
 
@@ -795,7 +1079,7 @@ export default function VentaRepartoFormModal({
                                           {prod.nombre}
                                         </div>
                                         <div className="text-[11px] text-cyan-100/80">
-                                          ${precio.toFixed(2)} c/u
+                                          {formatArMoney(precio)} c/u
                                         </div>
                                         <div className="flex items-center gap-1.5">
                                           <span className="text-[11px] text-cyan-100/80">
@@ -833,7 +1117,7 @@ export default function VentaRepartoFormModal({
                       <div className="text-xs text-cyan-100/80">
                         Total general (saldo fiado):{' '}
                         <span className="font-semibold text-emerald-300">
-                          ${totalGeneralConACuenta.toFixed(2)}
+                          {formatArMoney(totalGeneralConACuenta)}
                         </span>
                       </div>
                       <div className="flex gap-2">

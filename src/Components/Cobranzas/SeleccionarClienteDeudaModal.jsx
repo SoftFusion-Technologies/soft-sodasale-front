@@ -126,7 +126,7 @@ export default function SeleccionarClienteDeudaModal({
               >
                 <motion.h2
                   variants={fieldV}
-                  className="text-xl sm:text-2xl font-bold tracking-tight text-slate-50 flex items-center gap-2"
+                  className="titulo uppercase text-xl sm:text-2xl font-bold tracking-tight text-slate-50 flex items-center gap-2"
                 >
                   <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-400/40">
                     <Users className="h-5 w-5 text-emerald-300" />

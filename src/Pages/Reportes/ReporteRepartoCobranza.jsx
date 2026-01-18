@@ -13,8 +13,7 @@
  * Tema: Ventas / Cobranzas
  * Capa: Frontend - Pages
  */
-
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -29,7 +28,8 @@ import {
   AlertCircle,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileText
 } from 'lucide-react';
 import { FaInstagram, FaGlobeAmericas } from 'react-icons/fa';
 
@@ -100,8 +100,8 @@ export default function ReporteRepartoCobranza() {
         const rows = Array.isArray(resp.data?.data)
           ? resp.data.data
           : Array.isArray(resp.data)
-          ? resp.data
-          : [];
+            ? resp.data
+            : [];
 
         setRepartos(rows);
 
@@ -130,7 +130,7 @@ export default function ReporteRepartoCobranza() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(4);
 
-  const fetchReporte = async () => {
+  const fetchReporte = useCallback(async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
@@ -147,6 +147,9 @@ export default function ReporteRepartoCobranza() {
 
       if (fechaDesde) params.fecha_desde = fechaDesde;
       if (fechaHasta) params.fecha_hasta = fechaHasta;
+
+      // Benjamin Orellana - 18-01-2026
+      // Si está tildado, el backend debería devolver solo clientes con deuda.
       if (soloConDeuda) params.solo_con_deuda = '1';
 
       const resp = await axios.get(`${API_URL}/reportes/reparto-cobranza`, {
@@ -167,12 +170,14 @@ export default function ReporteRepartoCobranza() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [repartoId, fechaDesde, fechaHasta, soloConDeuda]);
 
-  // Carga inicial
+  // Benjamin Orellana - 18-01-2026
+  // Antes estaba [], por eso NO refrescaba al cambiar filtros.
+  // Ahora vuelve a pedir el reporte cuando cambian reparto/fechas/soloConDeuda.
   useEffect(() => {
     fetchReporte();
-  }, []);
+  }, [fetchReporte]);
 
   // Si cambia el reporte o el término de búsqueda, volvemos a la página 1
   useEffect(() => {
@@ -293,10 +298,30 @@ export default function ReporteRepartoCobranza() {
       '_blank'
     );
   };
+  // ------------------------------------
+  // Reporte simple (PDF tipo Excel 2 cols)
+  // ------------------------------------
+  const handleExportSimple = () => {
+    if (!repartoId) return;
 
+    const params = new URLSearchParams({
+      reparto_id: repartoId,
+      fecha_desde: fechaDesde || '',
+      fecha_hasta: fechaHasta || '',
+      solo_con_deuda: soloConDeuda ? '1' : ''
+    });
+
+    window.open(
+      `${API_URL}/reportes/reparto-cobranza-simple/pdf?${params.toString()}`,
+      '_blank'
+    );
+  };
   // ------------------------
   // Clientes + buscador + paginación
   // ------------------------
+  const EPS = 0.01;
+
+  // Fuente base
   const clientesData = reporte?.clientes || [];
   const resumen = reporte?.resumen || {
     total_clientes: 0,
@@ -304,17 +329,49 @@ export default function ReporteRepartoCobranza() {
     deuda_total_zona: 0
   };
 
-  const filteredClientes = useMemo(() => {
+  // Benjamin Orellana - 18-01-2026
+  // Regla de negocio: si NO hay deuda (0) y NO hay ventas fiado pendientes, NO se muestra en el reporte visual.
+  // Esto evita que aparezcan "saldados" aunque el backend los incluya por cualquier motivo.
+  const clientesConDeudaUI = useMemo(() => {
     if (!clientesData.length) return [];
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return clientesData;
 
-    return clientesData.filter(({ cliente }) => {
+    // Si el toggle está APAGADO, mostramos todo (no escondemos "saldados")
+    if (!soloConDeuda) return clientesData;
+
+    // Si está PRENDIDO, filtramos por deuda o pendientes
+    return clientesData.filter((item) => {
+      const deudaTotal = Number(item?.deuda_total ?? 0);
+
+      const ventasPend = Array.isArray(item?.ventas_pendientes)
+        ? item.ventas_pendientes
+        : [];
+
+      const saldoPendSum = ventasPend.reduce(
+        (acc, v) => acc + Number(v?.saldo_pendiente ?? 0),
+        0
+      );
+
+      // (Opcional, por robustez) si el backend manda deuda_ventas_pendientes, la consideramos también
+      const deudaPend = Math.max(
+        saldoPendSum,
+        Number(item?.deuda_ventas_pendientes ?? 0)
+      );
+
+      return deudaTotal > EPS || deudaPend > EPS;
+    });
+  }, [clientesData, soloConDeuda]);
+
+  const filteredClientes = useMemo(() => {
+    if (!clientesConDeudaUI.length) return [];
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return clientesConDeudaUI;
+
+    return clientesConDeudaUI.filter(({ cliente }) => {
       const nombre = (cliente.nombre || '').toLowerCase();
       const doc = (cliente.documento || '').toLowerCase();
       return nombre.includes(term) || doc.includes(term);
     });
-  }, [clientesData, searchTerm]);
+  }, [clientesConDeudaUI, searchTerm]);
 
   const totalFiltrados = filteredClientes.length;
   const totalPages = Math.max(1, Math.ceil(totalFiltrados / pageSize));
@@ -358,7 +415,7 @@ export default function ReporteRepartoCobranza() {
                 initial={{ opacity: 0, y: -16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
-                className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-amber-100 drop-shadow-md"
+                className="text-2xl titulo uppercase sm:text-3xl md:text-4xl font-bold tracking-tight text-amber-100 drop-shadow-md"
               >
                 Reporte de Reparto & Cobranza por Zona
               </motion.h1>
@@ -423,6 +480,20 @@ export default function ReporteRepartoCobranza() {
                 >
                   <FileDown className="h-4 w-4" />
                   Exportar / Imprimir
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportSimple}
+                  disabled={!repartoId}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-400 text-slate-950 text-xs sm:text-sm font-semibold hover:bg-emerald-300 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                  title={
+                    !repartoId
+                      ? 'Seleccioná un reparto para exportar'
+                      : 'Generar PDF simple'
+                  }
+                >
+                  <FileText className="h-4 w-4" />
+                  Reporte simple
                 </button>
               </div>
             </div>
@@ -492,25 +563,73 @@ export default function ReporteRepartoCobranza() {
               </div>
 
               {/* Solo con deuda */}
-              <div className="flex items-center md:items-start gap-2 mt-2 md:mt-6">
-                <input
-                  id="solo-deuda"
-                  type="checkbox"
-                  checked={soloConDeuda}
-                  onChange={(e) => setSoloConDeuda(e.target.checked)}
-                  className="h-4 w-4 rounded border-amber-300/70 bg-slate-950/70 text-amber-400 focus:ring-amber-300"
-                />
-                <div className="text-xs text-amber-100/80">
-                  <label
-                    htmlFor="solo-deuda"
-                    className="font-semibold cursor-pointer"
-                  >
-                    Solo clientes con deuda &gt; 0
-                  </label>
-                  <p className="mt-0.5 text-[11px]">
-                    Si lo destildás, verás también clientes saldados (deuda 0).
-                  </p>
-                </div>
+              <div className="mt-2 md:mt-6">
+                <label
+                  htmlFor="solo-deuda"
+                  className="group relative flex w-full items-start justify-between gap-4 rounded-2xl border border-amber-300/30 bg-slate-950/35 px-4 py-3 backdrop-blur-md transition hover:border-amber-300/55 hover:bg-slate-950/45 cursor-pointer"
+                >
+                  {/* Texto */}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-amber-50">
+                        Solo clientes con deuda &gt; 0
+                      </span>
+
+                      {/* Badge estado */}
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide border transition ${
+                          soloConDeuda
+                            ? 'bg-emerald-400/15 text-emerald-200 border-emerald-300/30'
+                            : 'bg-slate-400/10 text-slate-200/80 border-slate-300/20'
+                        }`}
+                      >
+                        {soloConDeuda ? 'ACTIVO' : 'INACTIVO'}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-[11px] leading-snug text-amber-100/70">
+                      Si lo desactivás, verás también clientes saldados (deuda
+                      0).
+                    </p>
+                  </div>
+
+                  {/* Toggle */}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <input
+                      id="solo-deuda"
+                      type="checkbox"
+                      checked={soloConDeuda}
+                      onChange={(e) => setSoloConDeuda(e.target.checked)}
+                      className="sr-only"
+                    />
+
+                    <div
+                      className={`relative h-7 w-12 rounded-full border transition ${
+                        soloConDeuda
+                          ? 'bg-emerald-400/25 border-emerald-300/35'
+                          : 'bg-slate-300/10 border-slate-300/25'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <span
+                        className={`absolute top-1/2 -translate-y-1/2 h-5 w-5 rounded-full transition-all shadow ${
+                          soloConDeuda
+                            ? 'left-6 bg-emerald-200 shadow-emerald-500/20'
+                            : 'left-1 bg-slate-200 shadow-black/20'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Glow sutil */}
+                  <div
+                    className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition group-hover:opacity-100 ${
+                      soloConDeuda
+                        ? 'ring-1 ring-emerald-300/25'
+                        : 'ring-1 ring-amber-300/15'
+                    }`}
+                  />
+                </label>
               </div>
             </div>
           </motion.div>
@@ -606,20 +725,22 @@ export default function ReporteRepartoCobranza() {
             transition={{ duration: 0.45, delay: 0.3 }}
             className="mt-8"
           >
-            {loading && !clientesData.length && (
+            {/* Benjamin Orellana - 18-01-2026
+                Usamos la lista "clientesConDeudaUI" para evitar mostrar saldados (deuda 0 y sin pendientes) */}
+            {loading && !clientesConDeudaUI.length && (
               <div className="py-10 text-center text-sm text-amber-50/80 flex flex-col items-center gap-3">
                 <Loader2 className="h-6 w-6 animate-spin" />
                 Cargando clientes y deudas de la zona...
               </div>
             )}
 
-            {!loading && !clientesData.length && (
+            {!loading && !clientesConDeudaUI.length && (
               <div className="py-10 text-center text-sm text-amber-50/80">
                 No se encontraron clientes para el filtro seleccionado.
               </div>
             )}
 
-            {!!clientesData.length && (
+            {!!clientesConDeudaUI.length && (
               <>
                 {/* Buscador + controles de página */}
                 <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -635,8 +756,9 @@ export default function ReporteRepartoCobranza() {
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-amber-100/70">
-                      {totalFiltrados === clientesData.length && !searchTerm
-                        ? `Mostrando ${clientesData.length} cliente(s) del reparto.`
+                      {totalFiltrados === clientesConDeudaUI.length &&
+                      !searchTerm
+                        ? `Mostrando ${clientesConDeudaUI.length} cliente(s) del reparto.`
                         : `Coincidencias: ${totalFiltrados} cliente(s) para "${searchTerm}".`}
                     </p>
                   </div>
@@ -842,7 +964,9 @@ export default function ReporteRepartoCobranza() {
                                             <p>
                                               Saldo:{' '}
                                               <span className="font-semibold text-emerald-300">
-                                                {moneyAR(v.saldo_pendiente)}{' '}
+                                                {moneyAR(
+                                                  v.saldo_pendiente
+                                                )}{' '}
                                               </span>
                                             </p>
                                             <p className="capitalize text-amber-100/70">

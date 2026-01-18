@@ -221,20 +221,41 @@ export default function ProductosCards() {
     setRows((r) => r.filter((x) => Number(x.id) !== id));
 
     try {
-      const resp = await deleteProducto(id); // hard delete por defecto
-      await showSuccessSwal({
-        title: 'Eliminado',
-        text: resp?.message || 'Se borró correctamente.'
-      });
-      await fetchData(); // re-sync (paginación/meta)
-    } catch (err) {
-      // Rollback a estado real
+      const resp = await deleteProducto(id); // hard delete normal
+      await showSuccessSwal({ title: 'Eliminado', text: resp?.message });
       await fetchData();
-      const { mensajeError, tips } = err || {};
+    } catch (err) {
+      await fetchData();
+
+      const { code, mensajeError, meta } = err || {};
+
+      if (code === 'PRODUCT_HAS_SALES') {
+        const ventasCount = meta?.ventasCount ?? null;
+
+        const r2 = await showConfirmSwal({
+          title: 'Producto con ventas asociadas',
+          text:
+            `Este producto tiene ventas asociadas${ventasCount != null ? ` (${ventasCount})` : ''}.\n` +
+            `Si continuás, se eliminarán esas líneas del detalle de ventas y el producto se borrará definitivamente.\n\n` +
+            `¿Deseás borrar de todas formas?`,
+          confirmText: 'Sí, borrar igual',
+          cancelText: 'Cancelar'
+        });
+
+        if (!isConfirmed(r2)) return;
+
+        const resp2 = await deleteProducto(id, { force: 1 });
+        await showSuccessSwal({
+          title: 'Eliminado definitivamente',
+          text: resp2?.message || 'Se eliminó el producto y sus referencias.'
+        });
+        await fetchData();
+        return;
+      }
+
       await showErrorSwal({
         title: 'No se pudo eliminar',
-        text: mensajeError || 'Ocurrió un error al eliminar',
-        tips
+        text: mensajeError || 'Ocurrió un error al eliminar'
       });
     }
   };

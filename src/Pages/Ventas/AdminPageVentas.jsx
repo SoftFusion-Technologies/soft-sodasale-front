@@ -67,13 +67,11 @@ const AdminPageVentas = () => {
     try {
       setCreating(true);
 
-      // 1) Crear cabecera
-      const nueva = await createVenta(venta);
-
-      // 2) Crear detalle si hay ítems
-      if (items?.length) {
-        await addVentaItems(nueva.id, { items });
-      }
+      // ======================================================
+      // Benjamin Orellana - 17-01-2026
+      // Crear venta en 1 solo request (cabecera + items + a_cuenta)
+      // ======================================================
+      const nueva = await createVenta({ ...venta, items });
 
       Swal.fire({
         icon: 'success',

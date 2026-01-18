@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import NavbarStaff from './NavbarStaff';
 import '../../Styles/staff/dashboard.css';
 import '../../Styles/staff/background.css';
-// import Footer from '../../components/footer/Footer';
 import { useAuth } from '../../AuthContext';
 import ParticlesBackground from '../../Components/ParticlesBackground';
 import { motion } from 'framer-motion';
@@ -20,6 +19,7 @@ import {
 
 import DeudoresResumenModal from '../../Components/Ventas/DeudoresResumenModal';
 import axios from 'axios';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // ---------- Tile genérico reuso estilo HammerX ----------
@@ -33,7 +33,6 @@ const DashboardTile = ({ title, description, to, icon: Icon, delay = 0 }) => {
     >
       <Link to={to} className="group block h-full text-left focus:outline-none">
         <div className="relative h-full overflow-hidden rounded-2xl border border-white/10 bg-white/85 shadow-[0_18px_45px_rgba(15,23,42,0.32)] backdrop-blur-xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_24px_60px_rgba(15,23,42,0.5)]">
-          {/* halo suave */}
           <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-emerald-500/12 via-cyan-500/10 to-sky-400/12" />
 
           <div className="relative z-10 p-5 flex flex-col gap-3 h-full">
@@ -66,39 +65,55 @@ const DashboardTile = ({ title, description, to, icon: Icon, delay = 0 }) => {
 };
 
 const AdminPage = () => {
-  const { userLevel } = useAuth();
+  const { userLevel, authToken } = useAuth();
 
   const nivel = String(userLevel || '').toLowerCase();
   const nivelLabel =
     nivel === 'socio'
       ? 'Administrador'
       : nivel === 'administrativo'
-      ? 'Administrativo'
-      : nivel === 'vendedor'
-      ? 'Vendedor'
-      : 'Contador';
+        ? 'Administrativo'
+        : nivel === 'vendedor'
+          ? 'Vendedor'
+          : 'Contador';
 
-  const { authToken } = useAuth();
   const [showDeudoresModal, setShowDeudoresModal] = useState(false);
   const [deudores, setDeudores] = useState([]);
+  const [deudoresLoading, setDeudoresLoading] = useState(false);
+  const [deudoresError, setDeudoresError] = useState(null);
 
   useEffect(() => {
+    if (!authToken) return;
+
+    let mounted = true;
     const timer = setTimeout(async () => {
       try {
-        const resp = await axios.get(`${API_URL}/ventas/deudores-fiado`, {
-          headers: {
-            Authorization: `Bearer ${authToken}`
-          }
-        });
-        setDeudores(resp.data || []);
-        setShowDeudoresModal(true);
-      } catch (e) {
-        console.error('Error cargando deudores fiado:', e);
-      }
-    }, 1500);
+        setDeudoresLoading(true);
+        setDeudoresError(null);
 
-    return () => clearTimeout(timer);
+        const resp = await axios.get(`${API_URL}/ventas/deudores-fiado`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        });
+
+        if (!mounted) return;
+        setDeudores(Array.isArray(resp.data) ? resp.data : []);
+        // IMPORTANTE: ya NO abrimos el modal automáticamente
+        // setShowDeudoresModal(true);
+      } catch (e) {
+        if (!mounted) return;
+        setDeudoresError(e);
+        console.error('Error cargando deudores fiado:', e);
+      } finally {
+        if (mounted) setDeudoresLoading(false);
+      }
+    }, 500);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, [authToken]);
+
   // Si todavía no cargó el nivel, evitamos parpadeos feos
   if (!userLevel) {
     return (
@@ -118,12 +133,14 @@ const AdminPage = () => {
     );
   }
 
+  const cantDeudores = deudores?.length || 0;
+  const canOpenDeudores =
+    !deudoresLoading && cantDeudores > 0 && !deudoresError;
+
   return (
     <>
-      {/* Navbar */}
       <NavbarStaff />
 
-      {/* Contenedor principal */}
       <section className="relative w-full min-h-screen mx-auto">
         <div className="min-h-screen bg-gradient-to-bl from-[#050509] via-[#0b0b13] to-[#151528]">
           <ParticlesBackground />
@@ -151,13 +168,14 @@ const AdminPage = () => {
                 </motion.p>
               </div>
 
+              {/* Rol actual + Botón debajo */}
               <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5, delay: 0.1 }}
-                className="flex items-center gap-3"
+                className="flex flex-col items-end gap-3"
               >
-                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 backdrop-blur-md">
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-2 backdrop-blur-md w-fit">
                   <p className="text-[11px] uppercase tracking-wide text-slate-200/70">
                     Rol actual
                   </p>
@@ -165,6 +183,53 @@ const AdminPage = () => {
                     {nivelLabel}
                   </p>
                 </div>
+
+                {/* Botón solicitado: debajo del rol actual */}
+                <button
+                  type="button"
+                  onClick={() => setShowDeudoresModal(true)}
+                  disabled={!canOpenDeudores}
+                  className={[
+                    'group inline-flex items-center gap-2 rounded-2xl border px-4 py-2 backdrop-blur-md transition-all',
+                    canOpenDeudores
+                      ? 'border-amber-400/25 bg-white/10 hover:bg-white/15 hover:border-amber-300/40'
+                      : 'border-white/10 bg-white/5 opacity-70 cursor-not-allowed'
+                  ].join(' ')}
+                  title={
+                    deudoresLoading
+                      ? 'Cargando deudores…'
+                      : deudoresError
+                        ? 'No se pudieron cargar los deudores'
+                        : cantDeudores === 0
+                          ? 'No hay deudores para mostrar'
+                          : 'Ver resumen de deudores'
+                  }
+                >
+                  <AlertTriangle className="h-4 w-4 text-amber-300 group-hover:text-amber-200" />
+                  <span className="text-xs font-semibold text-white">
+                    Resumen de Deudores
+                  </span>
+
+                  {/* Badge */}
+                  <span
+                    className={[
+                      'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                      canOpenDeudores
+                        ? 'bg-amber-400/15 text-amber-200 border border-amber-300/20'
+                        : 'bg-white/10 text-slate-200/70 border border-white/10'
+                    ].join(' ')}
+                  >
+                    {deudoresLoading ? '…' : cantDeudores}
+                  </span>
+                </button>
+
+                {/* Mensaje discreto de error (opcional) */}
+                {deudoresError && (
+                  <p className="text-[11px] text-rose-200/80 max-w-[280px] text-right">
+                    No se pudieron cargar los deudores. Revisá conexión o
+                    permisos.
+                  </p>
+                )}
               </motion.div>
             </div>
 
@@ -237,6 +302,8 @@ const AdminPage = () => {
           </div>
         </div>
       </section>
+
+      {/* Modal: ahora solo se abre cuando el usuario lo solicita */}
       <DeudoresResumenModal
         open={showDeudoresModal && deudores.length > 0}
         onClose={() => setShowDeudoresModal(false)}

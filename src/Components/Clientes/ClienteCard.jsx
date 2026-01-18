@@ -74,32 +74,64 @@ function composeZona(item) {
   return [barrio, loc, ciudad].filter(Boolean).join(' • ') || null;
 }
 
-function composeRepartos(item) {
-  const asignaciones = item?.asignaciones_repartos || [];
+function formatAsignacion(rc) {
+  const rep = rc?.reparto;
+  const nombre = rep?.nombre || `Reparto #${rc?.reparto_id}`;
+  const rangoMin = rep?.rango_min;
+  const rangoMax = rep?.rango_max;
+  const nro = rc?.numero_rango;
 
-  if (!Array.isArray(asignaciones) || asignaciones.length === 0) {
-    return null;
+  const rango =
+    rangoMin != null && rangoMax != null ? `${rangoMin} – ${rangoMax}` : null;
+
+  if (rango && nro) return `${nombre} • Nº ${nro} (rango ${rango})`;
+  if (rango) return `${nombre} • rango ${rango}`;
+  if (nro) return `${nombre} • Nº ${nro}`;
+  return nombre;
+}
+
+function getAsignaciones(item) {
+  const arr = item?.asignaciones_repartos || [];
+  return Array.isArray(arr) ? arr : [];
+}
+
+// Card: SOLO activo. Si no hay, "Sin asignar" (+ historicos opcional)
+function composeRepartoCard(item) {
+  const asignaciones = getAsignaciones(item);
+
+  const activa = asignaciones.find((a) => String(a?.estado) === 'activo');
+  if (activa) return formatAsignacion(activa);
+
+  const historicos = asignaciones.filter((a) => String(a?.estado) !== 'activo');
+  if (historicos.length) return `Sin asignar (${historicos.length} históricos)`;
+
+  return 'Sin asignar';
+}
+
+// Detalle: activo + (opcional) historial
+function composeRepartoDetalle(item) {
+  const asignaciones = getAsignaciones(item);
+
+  const activa = asignaciones.find((a) => String(a?.estado) === 'activo');
+  const historicos = asignaciones.filter((a) => String(a?.estado) !== 'activo');
+
+  const lineas = [];
+
+  // Asignación actual
+  lineas.push(
+    activa ? `Actual: ${formatAsignacion(activa)}` : 'Actual: Sin asignar'
+  );
+
+  // Historial (si existe)
+  if (historicos.length) {
+    // si son muchas, podés limitar a 5
+    const top = historicos.slice(0, 5).map((h) => `• ${formatAsignacion(h)}`);
+    lineas.push(`Historial (${historicos.length}):`);
+    lineas.push(...top);
+    if (historicos.length > 5) lineas.push('• …');
   }
 
-  return asignaciones
-    .map((rc) => {
-      const rep = rc?.reparto;
-      const nombre = rep?.nombre || `Reparto #${rc?.reparto_id}`;
-      const rangoMin = rep?.rango_min;
-      const rangoMax = rep?.rango_max;
-      const nro = rc?.numero_rango;
-
-      const rango =
-        rangoMin != null && rangoMax != null
-          ? `${rangoMin} – ${rangoMax}`
-          : null;
-
-      if (rango && nro) return `${nombre} • Nº ${nro} (rango ${rango})`;
-      if (rango) return `${nombre} • rango ${rango}`;
-      if (nro) return `${nombre} • Nº ${nro}`;
-      return nombre;
-    })
-    .join(' | ');
+  return lineas.join('\n');
 }
 
 export default function ClienteCard({
@@ -184,7 +216,7 @@ export default function ClienteCard({
             {
               label: 'Asignaciones de reparto',
               icon: <FaGlobeAmericas />,
-              value: composeRepartos(v) || 'Sin reparto asignado - Asigna desde Geografia/Repartos'
+              value: composeRepartoDetalle(v) || 'Actual: Sin asignar'
             }
           ]
         },
@@ -282,9 +314,7 @@ export default function ClienteCard({
               <Field label="Dirección">{composeDireccion(item)}</Field>
 
               {/* NUEVO: Reparto / rango */}
-              <Field label="Reparto / Rango">
-                {composeRepartos(item) || 'Sin reparto asignado'}
-              </Field>
+              <Field label="Reparto / Rango">{composeRepartoCard(item)}</Field>
             </div>
 
             {/* Orden de acciones: Ver, Des/Activar, Editar, Eliminar */}
