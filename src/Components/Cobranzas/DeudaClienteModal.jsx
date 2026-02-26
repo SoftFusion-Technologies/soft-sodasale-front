@@ -17,7 +17,7 @@ import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
 
 function formatMoneyARS(value = 0) {
-  return value.toLocaleString('es-AR', {
+  return Number(value || 0).toLocaleString('es-AR', {
     style: 'currency',
     currency: 'ARS',
     minimumFractionDigits: 2
@@ -41,13 +41,21 @@ export default function DeudaClienteModal({
   onVerVenta // opcional: callback para abrir el detalle de venta
 }) {
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState(null); // { cliente, total_deuda, ventas_pendientes }
+  const [data, setData] = useState(null); // { cliente, total_deuda, ventas_pendientes, saldo_previo_total, saldos_previos }
   const [error, setError] = useState(null);
 
-  // 👉 estados para COBRAR
+  // estados para COBRAR (VENTAS)
   const [cobros, setCobros] = useState({}); // { [ventaId]: monto }
   const [observaciones, setObservaciones] = useState('');
   const [savingCobro, setSavingCobro] = useState(false);
+
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // NUEVO: cobro para saldo previo (deuda histórica)
+  // IMPORTANTE: se enviará como aplicación explícita { venta_id: null, monto_aplicado }
+  // para evitar que el backend ejecute FIFO y toque ventas.
+  // ======================================================
+  const [cobroSaldoPrevio, setCobroSaldoPrevio] = useState('');
 
   // Fetch cuando se abre
   useEffect(() => {
@@ -62,9 +70,9 @@ export default function DeudaClienteModal({
         const resp = await getCxcDeudaCliente(clienteId);
         if (!cancelled) {
           setData(resp);
-          // reset cobros y observaciones cada vez que cargamos la deuda
           setCobros({});
           setObservaciones('');
+          setCobroSaldoPrevio('');
         }
       } catch (err) {
         console.error('Error cargando deuda cliente:', err);
@@ -86,30 +94,33 @@ export default function DeudaClienteModal({
 
   const ventasPendientes = data?.ventas_pendientes || [];
 
-  const resumen = useMemo(() => {
-    if (!ventasPendientes.length) {
-      return {
-        cantidadVentas: 0,
-        maxDiasAtraso: 0,
-        totalDeuda: data?.total_deuda || 0
-      };
-    }
+  const saldosPrevios = data?.saldos_previos || [];
+  const saldoPrevioTotal = Number(data?.saldo_previo_total || 0);
 
-    const cantidadVentas = ventasPendientes.length;
+  const resumen = useMemo(() => {
+    const totalDeuda = Number(data?.total_deuda || 0);
+
+    const totalDeudaVentas = ventasPendientes.reduce(
+      (acc, v) => acc + Number(v.saldo || 0),
+      0
+    );
+
     const maxDiasAtraso = ventasPendientes.reduce(
       (max, v) => Math.max(max, Number(v.dias_atraso || 0)),
       0
     );
 
     return {
-      cantidadVentas,
+      cantidadVentas: ventasPendientes.length,
       maxDiasAtraso,
-      totalDeuda: data?.total_deuda || 0
+      totalDeuda,
+      totalDeudaVentas: Number(totalDeudaVentas.toFixed(2)),
+      saldoPrevioTotal: Number(saldoPrevioTotal.toFixed(2))
     };
-  }, [ventasPendientes, data?.total_deuda]);
+  }, [ventasPendientes, data?.total_deuda, saldoPrevioTotal]);
 
-  // Total que el usuario decidió cobrar ahora
-  const totalCobrarAhora = useMemo(() => {
+  // Total que el usuario decidió cobrar ahora (VENTAS)
+  const totalCobrarVentasAhora = useMemo(() => {
     if (!ventasPendientes.length) return 0;
     return ventasPendientes.reduce((acc, v) => {
       const val = Number(cobros[v.id] || 0);
@@ -117,10 +128,41 @@ export default function DeudaClienteModal({
     }, 0);
   }, [ventasPendientes, cobros]);
 
+  // Total a cobrar ahora (SALDO PREVIO)
+  const totalCobrarSaldoPrevioAhora = useMemo(() => {
+    const raw = String(cobroSaldoPrevio || '')
+      .replace(',', '.')
+      .trim();
+    if (!raw) return 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+
+    // clamp a saldo previo total
+    const max = Number(resumen.saldoPrevioTotal || 0);
+    const clamped = n > max ? max : n;
+
+    return Number(clamped.toFixed(2));
+  }, [cobroSaldoPrevio, resumen.saldoPrevioTotal]);
+
+  // Total a cobrar ahora (VENTAS + SALDO PREVIO)
+  const totalCobrarAhora = useMemo(() => {
+    return Number(
+      (
+        Number(totalCobrarVentasAhora || 0) +
+        Number(totalCobrarSaldoPrevioAhora || 0)
+      ).toFixed(2)
+    );
+  }, [totalCobrarVentasAhora, totalCobrarSaldoPrevioAhora]);
+
   const saldoPostCobro = useMemo(() => {
-    const diff = (resumen.totalDeuda || 0) - totalCobrarAhora;
-    return diff > 0 ? diff : 0;
+    const diff =
+      Number(resumen.totalDeuda || 0) - Number(totalCobrarAhora || 0);
+    return diff > 0 ? Number(diff.toFixed(2)) : 0;
   }, [resumen.totalDeuda, totalCobrarAhora]);
+
+  const hasVentasPendientes = !loading && !error && ventasPendientes.length > 0;
+  const hasSaldoPrevio =
+    !loading && !error && Number(resumen.saldoPrevioTotal || 0) > 0;
 
   const handleClose = () => {
     if (loading || savingCobro) return;
@@ -146,54 +188,76 @@ export default function DeudaClienteModal({
     const next = {};
     ventasPendientes.forEach((v) => {
       const saldo = Number(v.saldo || 0);
-      if (saldo > 0) {
-        next[v.id] = saldo;
-      }
+      if (saldo > 0) next[v.id] = saldo;
     });
     setCobros(next);
+
+    // Benjamin Orellana - 25-02-2026 - Cobrar todo también incluye saldo previo (si existe)
+    if (Number(resumen.saldoPrevioTotal || 0) > 0) {
+      setCobroSaldoPrevio(String(Number(resumen.saldoPrevioTotal || 0)));
+    }
+  };
+
+  const handleCobrarTodoSaldoPrevio = () => {
+    const max = Number(resumen.saldoPrevioTotal || 0);
+    if (max <= 0) return;
+    setCobroSaldoPrevio(String(max));
   };
 
   const handleRegistrarCobranza = async () => {
     if (!clienteId) return;
-    if (!ventasPendientes.length) return;
 
-    const total = totalCobrarAhora;
+    // guard anti-doble click
+    if (savingCobro) return;
+
+    const total = Number(totalCobrarAhora || 0);
     if (!total || total <= 0.009) return;
 
-    // armamos aplicaciones
-    const aplicaciones = ventasPendientes
+    const clienteNombre = data?.cliente?.nombre || 'el cliente seleccionado';
+
+    // ======================================================
+    // Benjamin Orellana - 25-02-2026
+    // Armamos aplicaciones EXPLÍCITAS:
+    // - aplicaciones a ventas (venta_id)
+    // - + una aplicación "crédito suelto" (venta_id: null, aplica_a: 'CREDITO')
+    // - + una aplicación a saldo previo (venta_id: null, aplica_a: 'SALDO_PREVIO')
+    // Esto evita que el backend ejecute FIFO automáticamente.
+    // ======================================================
+    const appsVentas = ventasPendientes
       .map((v) => {
         const monto = Number(cobros[v.id] || 0);
         return {
           venta_id: v.id,
-          monto_aplicado: Number.isFinite(monto) ? monto : 0
+          monto_aplicado: Number.isFinite(monto) ? Number(monto.toFixed(2)) : 0
         };
       })
       .filter((a) => a.monto_aplicado > 0);
 
-    if (!aplicaciones.length) return;
+    const apps = [...appsVentas];
 
-    const payload = {
-      cliente_id: clienteId,
-      vendedor_id: null, // luego podés enchufar user logueado
-      fecha: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
-      total_cobrado: Number(total.toFixed(2)),
-      observaciones: observaciones?.trim() || null,
-      aplicaciones
-    };
+    if (totalCobrarSaldoPrevioAhora > 0) {
+      apps.push({
+        venta_id: null,
+        monto_aplicado: Number(totalCobrarSaldoPrevioAhora.toFixed(2)),
+        // Benjamin Orellana - 25-02-2026 - Distingue pago a saldo previo de crédito suelto en backend/GET deuda
+        aplica_a: 'SALDO_PREVIO'
+      });
+    }
 
-    const clienteNombre = data?.cliente?.nombre || 'el cliente seleccionado';
+    if (!apps.length) return;
+
     const totalFmt = formatMoneyARS(total);
-    const cantVentas = aplicaciones.length;
+    const totalVentasFmt = formatMoneyARS(totalCobrarVentasAhora);
+    const totalSaldoPrevioFmt = formatMoneyARS(totalCobrarSaldoPrevioAhora);
 
-    // 🔹 1) SweetAlert de confirmación
     const result = await Swal.fire({
       title: 'Confirmar cobranza',
       html: `
       <div style="text-align:left; font-size: 13px;">
         <p>Vas a registrar una cobranza para <b>${clienteNombre}</b>.</p>
         <p>Monto a cobrar: <b>${totalFmt}</b></p>
-        <p>Aplicada en <b>${cantVentas}</b> venta(s) fiado.</p>
+        <p>Aplicado a ventas: <b>${totalVentasFmt}</b></p>
+        <p>Aplicado a saldo previo: <b>${totalSaldoPrevioFmt}</b></p>
         ${
           observaciones?.trim()
             ? `<p>Observaciones:<br/><i>${observaciones
@@ -213,27 +277,32 @@ export default function DeudaClienteModal({
       focusCancel: true
     });
 
-    if (!result.isConfirmed) {
-      return; // usuario canceló
-    }
+    if (!result.isConfirmed) return;
 
     try {
       setSavingCobro(true);
       setError(null);
 
-      // 🔹 2) Registrar en backend
+      const payload = {
+        cliente_id: clienteId,
+        vendedor_id: null,
+        fecha: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+        total_cobrado: Number(total.toFixed(2)),
+        observaciones: observaciones?.trim() || null,
+        aplicaciones: apps
+      };
+
       const resp = await createCobranzaCliente(payload);
 
-      // 🔹 3) Recargar la deuda del cliente
       const nuevaDeuda = await getCxcDeudaCliente(clienteId);
       setData(nuevaDeuda);
       setCobros({});
       setObservaciones('');
+      setCobroSaldoPrevio('');
 
       const saldoRestante = Number(nuevaDeuda?.total_deuda || 0);
       const saldoFmt = formatMoneyARS(saldoRestante);
 
-      // 🔹 4) SweetAlert de éxito
       await Swal.fire({
         title: 'Cobranza registrada',
         icon: 'success',
@@ -257,7 +326,6 @@ export default function DeudaClienteModal({
 
       setError(msg);
 
-      // 🔹 SweetAlert de error
       await Swal.fire({
         title: 'Error al registrar la cobranza',
         icon: 'error',
@@ -367,6 +435,20 @@ export default function DeudaClienteModal({
                         {formatMoneyARS(resumen.totalDeuda)}
                       </span>
                     </div>
+
+                    {/* Benjamin Orellana - 25-02-2026 - Breakdown deuda */}
+                    <span className="text-[11px] text-emerald-100/80 text-right">
+                      Ventas pendientes:{' '}
+                      <span className="font-semibold">
+                        {formatMoneyARS(resumen.totalDeudaVentas)}
+                      </span>
+                      {' · '}
+                      Saldo previo:{' '}
+                      <span className="font-semibold">
+                        {formatMoneyARS(resumen.saldoPrevioTotal)}
+                      </span>
+                    </span>
+
                     <span className="text-[11px] text-emerald-100/80">
                       {resumen.cantidadVentas} venta(s) pendientes
                     </span>
@@ -427,22 +509,115 @@ export default function DeudaClienteModal({
                   </div>
                 )}
 
-                {!loading && !error && !ventasPendientes.length && (
-                  <div className="rounded-2xl border border-emerald-400/50 bg-emerald-500/10 px-3 py-3 text-xs sm:text-sm text-emerald-50 text-center">
-                    Este cliente no tiene ventas pendientes. 👌
-                  </div>
+                {!loading &&
+                  !error &&
+                  !hasVentasPendientes &&
+                  !hasSaldoPrevio && (
+                    <div className="rounded-2xl border border-emerald-400/50 bg-emerald-500/10 px-3 py-3 text-xs sm:text-sm text-emerald-50 text-center">
+                      Este cliente no tiene deuda pendiente.
+                    </div>
+                  )}
+
+                {/* Saldos previos */}
+                {!loading && !error && hasSaldoPrevio && (
+                  <motion.div variants={fieldV} className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm sm:text-base font-semibold text-emerald-50">
+                        Saldos previos (deuda histórica)
+                      </h4>
+
+                      <button
+                        type="button"
+                        onClick={handleCobrarTodoSaldoPrevio}
+                        disabled={loading || savingCobro}
+                        className="text-[11px] sm:text-xs px-3 py-1 rounded-full border border-emerald-400/60
+                                   text-emerald-50 bg-slate-950/70 hover:bg-emerald-500/15 transition disabled:opacity-50"
+                      >
+                        Cobrar saldo previo
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-400/40 bg-slate-950/70 overflow-hidden">
+                      <div className="max-h-[22vh] overflow-y-auto">
+                        <table className="min-w-full text-xs sm:text-sm">
+                          <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm">
+                            <tr className="text-emerald-100/80">
+                              <th className="px-3 py-2 text-left font-medium">
+                                Fecha
+                              </th>
+                              <th className="px-3 py-2 text-left font-medium">
+                                Descripción
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                Monto
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {saldosPrevios.map((sp) => (
+                              <tr
+                                key={sp.id}
+                                className="border-t border-emerald-500/15 hover:bg-emerald-500/5 transition"
+                              >
+                                <td className="px-3 py-2 whitespace-nowrap text-emerald-100/90">
+                                  {formatFecha(sp.fecha)}
+                                </td>
+                                <td className="px-3 py-2 text-emerald-100/85">
+                                  {sp.descripcion || '—'}
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-right text-emerald-50 font-semibold">
+                                  {formatMoneyARS(sp.monto || 0)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="border-t border-emerald-500/15 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div className="text-[11px] text-emerald-100/80">
+                          Total saldo previo:{' '}
+                          <span className="font-semibold text-emerald-50">
+                            {formatMoneyARS(resumen.saldoPrevioTotal)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 justify-end">
+                          <span className="text-[11px] text-emerald-100/80">
+                            Cobrar ahora:
+                          </span>
+
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={cobroSaldoPrevio}
+                            onChange={(e) =>
+                              setCobroSaldoPrevio(e.target.value)
+                            }
+                            disabled={loading || savingCobro}
+                            className="w-28 rounded-lg bg-slate-900/80 border border-emerald-500/40 px-2 py-1
+                                       text-right text-emerald-50 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/70
+                                       disabled:opacity-60 disabled:cursor-not-allowed"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
                 )}
 
-                {/* Tabla de ventas pendientes */}
-                {!loading && !error && ventasPendientes.length > 0 && (
+                {/* Ventas pendientes */}
+                {!loading && !error && hasVentasPendientes && (
                   <motion.div variants={fieldV}>
                     <h4 className="text-sm sm:text-base font-semibold text-emerald-50 mb-2 flex items-center justify-between gap-2">
                       <span>Detalle de ventas fiadas pendientes</span>
                       <button
                         type="button"
                         onClick={handleCobrarTodo}
+                        disabled={loading || savingCobro}
                         className="text-[11px] sm:text-xs px-3 py-1 rounded-full border border-emerald-400/60
-                                   text-emerald-50 bg-slate-950/70 hover:bg-emerald-500/15 transition"
+                                   text-emerald-50 bg-slate-950/70 hover:bg-emerald-500/15 transition disabled:opacity-50"
                       >
                         Cobrar todo
                       </button>
@@ -512,8 +687,10 @@ export default function DeudaClienteModal({
                                     onChange={(e) =>
                                       handleChangeCobro(v.id, e.target.value)
                                     }
+                                    disabled={loading || savingCobro}
                                     className="w-24 rounded-lg bg-slate-900/80 border border-emerald-500/40 px-2 py-1
-                                               text-right text-emerald-50 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/70"
+                                               text-right text-emerald-50 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-400/70
+                                               disabled:opacity-60 disabled:cursor-not-allowed"
                                   />
                                 </td>
                                 <td className="px-3 py-2 whitespace-nowrap text-center text-emerald-100/85">
@@ -538,43 +715,52 @@ export default function DeudaClienteModal({
                   </motion.div>
                 )}
 
-                {/* Resumen de cobro + observaciones */}
-                {!loading && !error && ventasPendientes.length > 0 && (
-                  <motion.div variants={fieldV} className="space-y-3 mt-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] text-emerald-100/80 uppercase tracking-wide">
-                          Monto a cobrar ahora
-                        </p>
-                        <p className="text-lg sm:text-xl font-bold text-emerald-50">
-                          {formatMoneyARS(totalCobrarAhora)}
-                        </p>
+                {/* Resumen cobro + observaciones */}
+                {!loading &&
+                  !error &&
+                  (hasVentasPendientes || hasSaldoPrevio) && (
+                    <motion.div variants={fieldV} className="space-y-3 mt-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] text-emerald-100/80 uppercase tracking-wide">
+                            Monto a cobrar ahora
+                          </p>
+                          <p className="text-lg sm:text-xl font-bold text-emerald-50">
+                            {formatMoneyARS(totalCobrarAhora)}
+                          </p>
+                          <p className="text-[11px] text-emerald-100/70">
+                            Ventas: {formatMoneyARS(totalCobrarVentasAhora)} ·
+                            Saldo previo:{' '}
+                            {formatMoneyARS(totalCobrarSaldoPrevioAhora)}
+                          </p>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <p className="text-[11px] text-emerald-100/70">
+                            Saldo estimado luego del cobro
+                          </p>
+                          <p className="text-sm font-semibold text-emerald-100">
+                            {formatMoneyARS(saldoPostCobro)}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-left sm:text-right">
-                        <p className="text-[11px] text-emerald-100/70">
-                          Saldo estimado luego del cobro
-                        </p>
-                        <p className="text-sm font-semibold text-emerald-100">
-                          {formatMoneyARS(saldoPostCobro)}
-                        </p>
-                      </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-[11px] sm:text-xs text-emerald-100/80 mb-1">
-                        Observaciones del cobro (opcional)
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={observaciones}
-                        onChange={(e) => setObservaciones(e.target.value)}
-                        className="w-full rounded-2xl bg-slate-950/70 border border-emerald-500/40 px-3 py-2 text-xs sm:text-sm
-                                   text-emerald-50 resize-y focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
-                        placeholder="Ej: Cobro en efectivo en reparto 2, saldo parcial de ventas #7 y #11..."
-                      />
-                    </div>
-                  </motion.div>
-                )}
+                      <div>
+                        <label className="block text-[11px] sm:text-xs text-emerald-100/80 mb-1">
+                          Observaciones del cobro (opcional)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={observaciones}
+                          onChange={(e) => setObservaciones(e.target.value)}
+                          disabled={loading || savingCobro}
+                          className="w-full rounded-2xl bg-slate-950/70 border border-emerald-500/40 px-3 py-2 text-xs sm:text-sm
+                                   text-emerald-50 resize-y focus:outline-none focus:ring-2 focus:ring-emerald-400/60
+                                   disabled:opacity-60 disabled:cursor-not-allowed"
+                          placeholder="Ej: Cobro en efectivo, saldo parcial..."
+                        />
+                      </div>
+                    </motion.div>
+                  )}
 
                 {/* Footer acciones + redes SoftFusion */}
                 <motion.div
@@ -593,7 +779,7 @@ export default function DeudaClienteModal({
                         Cerrar
                       </button>
 
-                      {ventasPendientes.length > 0 && (
+                      {(hasVentasPendientes || hasSaldoPrevio) && (
                         <button
                           type="button"
                           onClick={handleRegistrarCobranza}

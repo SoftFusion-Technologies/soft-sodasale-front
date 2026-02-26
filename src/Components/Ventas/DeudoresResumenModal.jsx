@@ -1,4 +1,5 @@
 // FILE: src/Components/Ventas/DeudoresResumenModal.jsx
+// Benjamin Orellana - 25-02-2026 - Soporta saldo_previo_total cuando un deudor no tiene ventas pendientes
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -16,30 +17,6 @@ import {
   formContainerV,
   fieldV
 } from '../../ui/animHelpers';
-
-/**
- * Estructura esperada de cada deudor:
- * deudores = [
- *   {
- *     cliente_id: 1,
- *     nombre: 'Benjamin Orellana',
- *     documento: '4039320193',
- *     total_pendiente: 8000,
- *     dias_max_atraso: 5, // opcional
- *     ventas: [
- *       {
- *         id: 14,
- *         fecha: '2025-11-30T00:00:00',
- *         vendedor_nombre: 'Baltazar Almiron',
- *         tipo: 'fiado',
- *         estado: 'confirmada',
- *         total_neto: 3500
- *       },
- *       ...
- *     ]
- *   }
- * ]
- */
 
 const formatMoney = (n) =>
   (Number(n) || 0).toLocaleString('es-AR', {
@@ -64,7 +41,6 @@ const formatFecha = (iso) => {
 export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
   const [selectedId, setSelectedId] = useState(null);
 
-  // Seleccionar por defecto el deudor con mayor deuda
   useEffect(() => {
     if (!open || !deudores.length) return;
     const mayor = [...deudores].sort(
@@ -99,6 +75,9 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
     [deudores, selectedId]
   );
 
+  const selectedSaldoPrevio = Number(selected?.saldo_previo_total || 0);
+  const selectedVentasCount = (selected?.ventas && selected.ventas.length) || 0;
+
   return (
     <AnimatePresence>
       {open && (
@@ -111,13 +90,11 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
           role="dialog"
           aria-modal="true"
         >
-          {/* Fondo oscuro */}
           <div
             className="absolute inset-0 bg-black/75 backdrop-blur-md"
             onClick={onClose}
           />
 
-          {/* Panel principal */}
           <motion.div
             variants={panelV}
             initial="hidden"
@@ -128,7 +105,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                        bg-gradient-to-br from-slate-950/95 via-slate-900/95 to-emerald-950/90
                        shadow-[0_0_55px_rgba(16,185,129,0.55)]"
           >
-            {/* Botón cerrar */}
             <button
               onClick={onClose}
               className="absolute z-50 top-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-xl
@@ -139,7 +115,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
             </button>
 
             <div className="relative z-10 p-4 sm:p-6 md:p-8">
-              {/* HEADER */}
               <motion.div
                 variants={formContainerV}
                 initial="hidden"
@@ -167,7 +142,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                     </div>
                   </div>
 
-                  {/* KPI global */}
                   <div className="flex flex-col items-end gap-1 text-right">
                     <span className="text-[11px] uppercase tracking-[0.16em] text-emerald-200/80">
                       Total pendiente
@@ -185,9 +159,7 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                 </motion.div>
               </motion.div>
 
-              {/* CONTENIDO PRINCIPAL */}
               <div className="grid gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.6fr)]">
-                {/* Columna izquierda: lista de deudores */}
                 <motion.div
                   variants={formContainerV}
                   initial="hidden"
@@ -274,7 +246,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                   </div>
                 </motion.div>
 
-                {/* Columna derecha: detalle del deudor seleccionado */}
                 <motion.div
                   variants={formContainerV}
                   initial="hidden"
@@ -288,7 +259,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                     </div>
                   ) : (
                     <>
-                      {/* Header del cliente */}
                       <motion.div
                         variants={fieldV}
                         className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-3"
@@ -304,6 +274,16 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                             <div className="text-[11px] text-emerald-100/80">
                               {selected.documento || 'Sin documento'}
                             </div>
+
+                            {/* Benjamin Orellana - 25-02-2026 - Mostrar saldo previo si existe */}
+                            {selectedSaldoPrevio > 0.01 && (
+                              <div className="text-[11px] text-emerald-100/80 mt-1">
+                                Saldo previo:{' '}
+                                <span className="font-semibold text-emerald-300">
+                                  {formatMoney(selectedSaldoPrevio)}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex flex-col items-end text-right gap-1">
@@ -314,20 +294,21 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                             {formatMoney(selected.total_pendiente)}
                           </span>
                           <span className="text-[11px] text-emerald-100/75">
-                            {(selected.ventas && selected.ventas.length) || 0}{' '}
-                            venta(s) fiado
+                            {selectedVentasCount} venta(s) pendiente(s)
                           </span>
                         </div>
                       </motion.div>
 
-                      {/* Lista de ventas */}
                       <motion.div
                         variants={fieldV}
                         className="flex-1 min-h-[220px] max-h-[360px] overflow-y-auto rounded-xl border border-emerald-500/25 bg-slate-950/80 px-2 py-2"
                       >
                         {!selected.ventas || !selected.ventas.length ? (
                           <div className="py-10 text-center text-xs text-emerald-100/80">
-                            Este cliente no tiene ventas fiado pendientes.
+                            {/* Benjamin Orellana - 25-02-2026 - Mensaje coherente si solo hay saldo previo */}
+                            {selectedSaldoPrevio > 0.01
+                              ? 'Este cliente no tiene ventas fiado pendientes, pero mantiene saldo previo pendiente.'
+                              : 'Este cliente no tiene ventas fiado pendientes.'}
                           </div>
                         ) : (
                           <div className="space-y-2.5">
@@ -377,7 +358,6 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                     </>
                   )}
 
-                  {/* Footer pequeño */}
                   <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2">
                     <div className="text-[11px] text-emerald-100/80">
                       Consejo: usá esta vista como radar rápido para priorizar
@@ -395,10 +375,9 @@ export default function DeudoresResumenModal({ open, onClose, deudores = [] }) {
                 </motion.div>
               </div>
 
-              {/* Footer SoftFusion */}
               <div className="mt-4 pt-3 border-t border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="text-[11px] text-emerald-100/80 text-center sm:text-left">
-                   Módulo de Ventas &amp; Cobranza — Desarrollado por{' '}
+                  Módulo de Ventas &amp; Cobranza — Desarrollado por{' '}
                   <span className="font-semibold text-emerald-300">
                     SoftFusion
                   </span>

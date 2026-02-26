@@ -50,6 +50,10 @@ import RepartosCards from './Pages/Repartos/RepartosCards';
 
 import AdminPageCobranzas from './Pages/Cobranzas/AdminPageCobranzas';
 import ReporteRepartoCobranza from './Pages/Reportes/ReporteRepartoCobranza';
+
+// Benjamin Orellana - 25/02/2026 - Pantalla de saldo previo (deudas históricas)
+import VentasSaldoPrevioPage from './Pages/Ventas/VentasSaldoPrevioPage.jsx';
+
 function AppContent() {
   return (
     <>
@@ -181,6 +185,15 @@ function AppContent() {
               <ProtectedRoute>
                 {' '}
                 <VentasHistorialPage />{' '}
+              </ProtectedRoute>
+            }
+          />
+          <Ruta
+            path="/dashboard/ventas/saldo-previo"
+            element={
+              <ProtectedRoute>
+                {' '}
+                <VentasSaldoPrevioPage />{' '}
               </ProtectedRoute>
             }
           />

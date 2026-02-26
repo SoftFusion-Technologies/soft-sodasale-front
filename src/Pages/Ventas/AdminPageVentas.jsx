@@ -16,7 +16,7 @@ import {
   FaFileInvoiceDollar,
   FaUsers,
   FaChartLine,
-  FaMoneyBill
+  FaMoneyBillWave
 } from 'react-icons/fa';
 
 import VentaFormModal from '../../Components/Ventas/VentaFormModal';
@@ -42,7 +42,12 @@ const ventasLinks = [
     label: 'Nueva Venta',
     icon: <FaCashRegister />
   },
-
+  // Benjamin Orellana - 25/02/2026 - Link a pantalla de carga manual de saldo previo (deudas históricas sin productos)
+  {
+    to: '/dashboard/ventas/saldo-previo',
+    label: 'Cargar Saldo Previo',
+    icon: <FaMoneyBillWave />
+  },
   {
     to: '/dashboard/ventas/deudas', // fiado / cuentas por cobrar
     label: 'Gestión de Deudas',

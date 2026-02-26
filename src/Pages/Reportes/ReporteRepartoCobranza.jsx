@@ -67,7 +67,8 @@ export default function ReporteRepartoCobranza() {
   const [zonaId, setZonaId] = useState('all'); // reservado
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
-  const [soloConDeuda, setSoloConDeuda] = useState(false);
+  // Benjamin Orellana - 25-02-2026 palomita de “imprimir solo clientes con deuda” siempre activada por pedido de chocoloca
+  const [soloConDeuda, setSoloConDeuda] = useState(true);
 
   // Data del backend
   const [reporte, setReporte] = useState(null);
@@ -280,6 +281,24 @@ export default function ReporteRepartoCobranza() {
     };
   }, [reporte, planeo]);
 
+  // Benjamin Orellana - 25-02-2026 - Estado de selección de clientes para impresión
+  const [selectedClientes, setSelectedClientes] = useState({});
+
+  const toggleSelectCliente = (clienteId) => {
+    setSelectedClientes((prev) => ({
+      ...prev,
+      [clienteId]: !prev?.[clienteId]
+    }));
+  };
+
+  const clearSelection = () => setSelectedClientes({});
+
+  const selectedClienteIds = useMemo(() => {
+    return Object.keys(selectedClientes || {})
+      .filter((k) => selectedClientes[k])
+      .map((k) => Number(k))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  }, [selectedClientes]);
   // ------------------------
   // Exportar / Imprimir (PDF)
   // ------------------------
@@ -292,6 +311,19 @@ export default function ReporteRepartoCobranza() {
       fecha_hasta: fechaHasta || '',
       solo_con_deuda: soloConDeuda ? '1' : ''
     });
+
+    // ======================================================
+    // Benjamin Orellana - 25-02-2026
+    // Nuevo: si hay clientes seleccionados, imprimimos SOLO esos clientes.
+    // cliente_ids se manda como CSV: "20,35,99"
+    // ======================================================
+    const selectedIds = Array.isArray(selectedClienteIds)
+      ? selectedClienteIds
+      : [];
+
+    if (selectedIds.length > 0) {
+      params.set('cliente_ids', selectedIds.join(','));
+    }
 
     window.open(
       `${API_URL}/reportes/reparto-cobranza/pdf?${params.toString()}`,
@@ -481,6 +513,7 @@ export default function ReporteRepartoCobranza() {
                   <FileDown className="h-4 w-4" />
                   Exportar / Imprimir
                 </button>
+
                 <button
                   type="button"
                   onClick={handleExportSimple}
@@ -877,6 +910,21 @@ export default function ReporteRepartoCobranza() {
                                 <div className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500/10 border border-emerald-400/70 px-3 py-1.5">
                                   <DollarSign className="h-4 w-4 text-emerald-300" />
                                   <div className="text-right">
+                                    {/* Benjamin Orellana - 25-02-2026 - Checkbox
+                                    para seleccionar cliente a imprimir */}
+                                    <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!selectedClientes[cliente.id]}
+                                        onChange={() =>
+                                          toggleSelectCliente(cliente.id)
+                                        }
+                                        className="h-4 w-4 rounded border-amber-300 bg-slate-950 text-amber-400 focus:ring-amber-300"
+                                      />
+                                      <span className="text-[11px] text-amber-100/80">
+                                        Imprimir
+                                      </span>
+                                    </label>
                                     <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/80">
                                       Deuda total
                                     </p>
@@ -1196,6 +1244,50 @@ export default function ReporteRepartoCobranza() {
             </div>
           </div>
         </div>
+        {/* ======================================================
+    Benjamin Orellana - 25-02-2026
+    CTA flotante: Exportar/Imprimir para clientes seleccionados.
+    Se muestra fijo abajo solo si hay seleccionados, para evitar volver al header.
+   ====================================================== */}
+        {selectedClienteIds.length > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-50 pb-[env(safe-area-inset-bottom)]">
+            <div className="mx-auto max-w-6xl px-3 sm:px-4">
+              <div className="mb-3 rounded-2xl border border-amber-300/30 bg-slate-950/85 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2.5">
+                  <div className="flex items-center justify-between sm:justify-start gap-2">
+                    <div className="text-[11px] sm:text-xs text-amber-100/80">
+                      Seleccionados:{' '}
+                      <span className="font-semibold text-amber-100">
+                        {selectedClienteIds.length}
+                      </span>
+                    </div>
+
+                    {/* Opcional: limpiar selección rápido */}
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className="text-[11px] sm:text-xs px-2.5 py-1 rounded-full border border-white/15 bg-white/5 text-amber-100/80 hover:bg-white/10 transition"
+                      title="Limpiar selección"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-300/70 text-amber-100 text-xs sm:text-sm hover:bg-amber-400/10 transition"
+                    >
+                      <FileDown className="h-4 w-4" />
+                      Exportar seleccionados
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </>
   );

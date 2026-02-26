@@ -39,6 +39,9 @@ import { listRepartos } from '../../api/repartos';
 import SearchableSelect from '../../Components/Common/SearchableSelect';
 import { moneyAR } from '../../utils/money';
 
+// Benjamin Orellana - 25-02-2026 - http client para consumir GET /cxc/deudas (deuda real por cliente, incluye saldo_previo).
+import http from '../../api/http';
+
 // Util formatear fecha
 const fmtFecha = (v) => {
   if (!v) return '—';
@@ -66,6 +69,14 @@ const badgeEstadoClasses = {
 const VentasDeudasPage = () => {
   const { userLevel } = useAuth(); // por si después limitás acceso
 
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Fuente de datos:
+  // - 'ventas': deudas calculadas desde ventas (total_neto - monto_a_cuenta)
+  // - 'cxc': deuda real por cliente desde ledger cxc_movimientos (incluye saldo_previo)
+  // ======================================================
+  const [fuente, setFuente] = useState('cxc');
+
   // --------- Filtros ---------
   const [q, setQ] = useState('');
   const [tipo, setTipo] = useState('a_cuenta'); // 'fiado' | 'a_cuenta'
@@ -90,6 +101,10 @@ const VentasDeudasPage = () => {
 
   // Datos
   const [ventas, setVentas] = useState([]);
+
+  // Benjamin Orellana - 25-02-2026 - Dataset para fuente CxC (GET /cxc/deudas): deuda real por cliente.
+  const [cxcDeudas, setCxcDeudas] = useState([]);
+
   const [meta, setMeta] = useState({
     total: 0,
     page: 1,
@@ -176,6 +191,15 @@ const VentasDeudasPage = () => {
 
   // Localidades cuando cambia ciudadId
   useEffect(() => {
+    // Benjamin Orellana - 25-02-2026 - En fuente CxC, la geografía disponible es ciudad (clientes.ciudad_id). Localidad/Barrio no aplican.
+    if (fuente === 'cxc') {
+      setLocalidades([]);
+      setLocalidadId(null);
+      setBarrios([]);
+      setBarrioId(null);
+      return;
+    }
+
     if (!ciudadId) {
       setLocalidades([]);
       setLocalidadId(null);
@@ -203,10 +227,16 @@ const VentasDeudasPage = () => {
         console.error('Error cargando localidades:', err);
       }
     })();
-  }, [ciudadId]);
+  }, [ciudadId, fuente]);
 
   // Barrios cuando cambia localidadId
   useEffect(() => {
+    if (fuente === 'cxc') {
+      setBarrios([]);
+      setBarrioId(null);
+      return;
+    }
+
     if (!localidadId) {
       setBarrios([]);
       setBarrioId(null);
@@ -230,9 +260,9 @@ const VentasDeudasPage = () => {
         console.error('Error cargando barrios:', err);
       }
     })();
-  }, [localidadId]);
+  }, [localidadId, fuente]);
 
-  // --------- Fetch ventas (deudas) ---------
+  // --------- Fetch ventas (deudas desde Ventas) ---------
   const fetchVentas = async (page = 1) => {
     try {
       setLoading(true);
@@ -279,8 +309,6 @@ const VentasDeudasPage = () => {
           ? Number(repartoId)
           : undefined;
 
-      // OJO fechas: idealmente que fechaDesde/fechaHasta ya sean YYYY-MM-DD
-      // Si vienen como Date, convertí; si vienen dd/mm/aaaa, convertí antes.
       const params = {
         // sólo ventas con saldo pendiente
         deuda: '1',
@@ -311,7 +339,7 @@ const VentasDeudasPage = () => {
         limit: 20
       };
 
-      console.log('Params de búsqueda (deudas):', params);
+      console.log('Params de búsqueda (deudas - ventas):', params);
 
       const res = await listVentas(params);
 
@@ -324,6 +352,7 @@ const VentasDeudasPage = () => {
       const metaRes = res?.meta || {};
 
       setVentas(rows);
+      setCxcDeudas([]); // Benjamin Orellana - 25-02-2026 - Evita mezclar datasets en UI
       setMeta({
         total: metaRes.total ?? rows.length,
         page: metaRes.page ?? page,
@@ -342,22 +371,100 @@ const VentasDeudasPage = () => {
     }
   };
 
-  // Carga inicial
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Fetch deudas desde CxC (ledger): GET /cxc/deudas
+  // Nota: este modo incluye saldos previos y deuda real consolidada por cliente.
+  // ======================================================
+  const fetchCxCDeudas = async (page = 1) => {
+    try {
+      setLoading(true);
+      setError('');
+
+      const safeCiudadId =
+        ciudadId !== null && ciudadId !== undefined && ciudadId !== ''
+          ? Number(ciudadId)
+          : undefined;
+
+      const params = {
+        q: q?.trim() ? q.trim() : undefined,
+        ciudad_id: Number.isFinite(safeCiudadId) ? safeCiudadId : undefined,
+        desde: fechaDesde || undefined,
+        hasta: fechaHasta || undefined,
+        saldo_min: '0.01',
+        page,
+        limit: 20
+      };
+
+      console.log('Params de búsqueda (deudas - cxc):', params);
+
+      const { data } = await http.get('/cxc/deudas', { params });
+
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      const metaRes = data?.meta || {};
+
+      setCxcDeudas(rows);
+      setVentas([]); // Benjamin Orellana - 25-02-2026 - Evita mezclar datasets en UI
+      setMeta({
+        total: metaRes.total ?? rows.length,
+        page: metaRes.page ?? page,
+        limit: metaRes.limit ?? 20,
+        totalPages: metaRes.totalPages ?? 1,
+        hasPrev: metaRes.hasPrev ?? page > 1,
+        hasNext:
+          metaRes.hasNext ??
+          (metaRes.total ? page * (metaRes.limit ?? 20) < metaRes.total : false)
+      });
+    } catch (err) {
+      console.error('Error listando CxC deudas:', err);
+      setError('No se pudieron cargar las deudas (CxC).');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Carga inicial / cambio de fuente
   useEffect(() => {
-    fetchVentas(1);
-  }, []);
+    // Benjamin Orellana - 25-02-2026 - Al cambiar fuente, volvemos a página 1 y refrescamos según origen.
+    if (fuente === 'cxc') fetchCxCDeudas(1);
+    else fetchVentas(1);
+  }, [fuente]); // eslint-disable-line
 
   const handleBuscar = () => {
-    fetchVentas(1);
+    // Benjamin Orellana - 25-02-2026 - Buscar respeta la fuente seleccionada.
+    if (fuente === 'cxc') fetchCxCDeudas(1);
+    else fetchVentas(1);
   };
 
   const handlePageChange = (nextPage) => {
     if (nextPage < 1 || nextPage > meta.totalPages) return;
-    fetchVentas(nextPage);
+    if (fuente === 'cxc') fetchCxCDeudas(nextPage);
+    else fetchVentas(nextPage);
   };
 
   // --------- KPIs calculados en front ---------
   const kpis = useMemo(() => {
+    // Benjamin Orellana - 25-02-2026 - KPIs calculados sobre el dataset cargado (página actual).
+    // En caso de requerir KPIs globales (todas las páginas), conviene devolverlos desde el backend.
+    if (fuente === 'cxc') {
+      if (!cxcDeudas || cxcDeudas.length === 0) {
+        return {
+          totalDeudas: 0,
+          cantidad: 0,
+          ticketPromedio: 0
+        };
+      }
+
+      const totalDeudas = cxcDeudas.reduce(
+        (acc, r) => acc + Number(r.saldo_total || 0),
+        0
+      );
+      const cantidad = cxcDeudas.length;
+      const ticketPromedio = cantidad > 0 ? totalDeudas / cantidad : 0;
+      return { totalDeudas, cantidad, ticketPromedio };
+    }
+
+    // fuente ventas
     if (!ventas || ventas.length === 0) {
       return {
         totalDeudas: 0,
@@ -365,14 +472,19 @@ const VentasDeudasPage = () => {
         ticketPromedio: 0
       };
     }
-    const totalDeudas = ventas.reduce(
-      (acc, v) => acc + Number(v.total_neto || 0),
-      0
-    );
+
+    // Benjamin Orellana - 25-02-2026 - Total adeudado debe ser el saldo (total_neto - a_cuenta), no el total_neto.
+    const totalDeudas = ventas.reduce((acc, v) => {
+      const totalNeto = Number(v.total_neto ?? 0);
+      const aCuenta = Number(v.monto_a_cuenta ?? 0);
+      const saldo = Math.max(0, totalNeto - aCuenta);
+      return acc + saldo;
+    }, 0);
+
     const cantidad = ventas.length;
     const ticketPromedio = cantidad > 0 ? totalDeudas / cantidad : 0;
     return { totalDeudas, cantidad, ticketPromedio };
-  }, [ventas]);
+  }, [ventas, cxcDeudas, fuente]);
 
   // ======================================================
   // Benjamin Orellana - 17-01-2026
@@ -392,6 +504,12 @@ const VentasDeudasPage = () => {
     });
     return m;
   }, [repartos]);
+
+  const fuenteLabel = fuente === 'cxc' ? 'Cuenta Corriente (CxC)' : 'Ventas';
+  const tablaTitle =
+    fuente === 'cxc'
+      ? `Clientes con deuda (${meta.total} registros)`
+      : `Ventas con deuda (${meta.total} registros)`;
 
   return (
     <>
@@ -418,13 +536,18 @@ const VentasDeudasPage = () => {
               transition={{ duration: 0.5, delay: 0.1 }}
               className="text-sm sm:text-base text-gray-200/80 max-w-2xl mx-auto"
             >
-              Visualizá rápidamente las ventas pendientes de cobro por fiado o a
-              cuenta, filtrá por vendedor, geografía y fechas, y analizá los
-              montos adeudados.
+              Visualizá rápidamente las deudas pendientes. Podés alternar la
+              fuente:
+              <span className="font-semibold text-white"> Ventas</span> (saldo
+              por venta) o{' '}
+              <span className="font-semibold text-white">
+                Cuenta Corriente (CxC)
+              </span>{' '}
+              (deuda real consolidada, incluye saldo previo).
             </motion.p>
           </div>
 
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
             {/* KPIs */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
@@ -443,7 +566,9 @@ const VentasDeudasPage = () => {
 
               <div className="rounded-2xl bg-white/90 backdrop-blur-xl border border-white/40 p-4 flex flex-col">
                 <span className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                  Cantidad de ventas
+                  {fuente === 'cxc'
+                    ? 'Cantidad de clientes'
+                    : 'Cantidad de ventas'}
                 </span>
                 <span className="text-2xl font-semibold text-gray-900">
                   {kpis.cantidad}
@@ -452,7 +577,7 @@ const VentasDeudasPage = () => {
 
               <div className="rounded-2xl bg-white/90 backdrop-blur-xl border border-white/40 p-4 flex flex-col">
                 <span className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                  Ticket promedio
+                  {fuente === 'cxc' ? 'Deuda promedio' : 'Ticket promedio'}
                 </span>
                 <span className="text-2xl font-semibold text-gray-900">
                   {moneyAR(kpis.ticketPromedio)}
@@ -467,10 +592,47 @@ const VentasDeudasPage = () => {
               transition={{ duration: 0.4, delay: 0.2 }}
               className="rounded-2xl bg-white/95 backdrop-blur-xl border border-white/40 p-4 sm:p-5 space-y-4"
             >
-              <div className="flex items-center gap-2 text-gray-700 mb-1">
-                <FaFilter className="text-xs" />
-                <span className="text-sm font-semibold">Filtros</span>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-gray-700 mb-1">
+                <div className="flex items-center gap-2">
+                  <FaFilter className="text-xs" />
+                  <span className="text-sm font-semibold">Filtros</span>
+                </div>
+
+                {/* Benjamin Orellana - 25-02-2026 - Selector de fuente de datos */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">
+                    Fuente
+                  </span>
+                  <select
+                    value={fuente}
+                    onChange={(e) => {
+                      const v = String(e.target.value || 'ventas');
+                      setFuente(v);
+                    }}
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                  >
+                    <option value="cxc">Cuenta Corriente (CxC)</option>
+                    <option value="ventas">Ventas</option>
+                  </select>
+
+                  <span className="text-[11px] text-gray-500 hidden md:inline">
+                    {fuenteLabel}
+                  </span>
+                </div>
               </div>
+
+              {fuente === 'cxc' && (
+                <div className="text-[11px] text-gray-600">
+                  En modo CxC se filtra por{' '}
+                  <span className="font-semibold">cliente/city/fechas</span>.
+                  Los filtros de{' '}
+                  <span className="font-semibold">
+                    tipo/estado/vendedor/reparto/localidad/barrio
+                  </span>{' '}
+                  no aplican.
+                </div>
+              )}
 
               {/* Primera fila: texto, reparto, tipo, estado, vendedor */}
               <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
@@ -492,9 +654,9 @@ const VentasDeudasPage = () => {
                 </div>
 
                 {/* ======================================================
-      Benjamin Orellana - 17-01-2026
-      Filtro Reparto
-    ====================================================== */}
+                    Benjamin Orellana - 17-01-2026
+                    Filtro Reparto
+                  ====================================================== */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">
                     <span className="inline-flex items-center gap-2">
@@ -506,10 +668,15 @@ const VentasDeudasPage = () => {
                   <select
                     value={repartoId ?? ''}
                     onChange={(e) => setRepartoId(e.target.value || null)}
-                    disabled={repartosLoading}
+                    disabled={repartosLoading || fuente === 'cxc'}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
                  focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent
                  disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={
+                      fuente === 'cxc'
+                        ? 'Filtro no disponible en modo CxC'
+                        : undefined
+                    }
                   >
                     <option value="">
                       {repartosLoading
@@ -542,8 +709,15 @@ const VentasDeudasPage = () => {
                   <select
                     value={tipo}
                     onChange={(e) => setTipo(e.target.value)}
+                    disabled={fuente === 'cxc'}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
-                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={
+                      fuente === 'cxc'
+                        ? 'Filtro no disponible en modo CxC'
+                        : undefined
+                    }
                   >
                     <option value="fiado">Fiado</option>
                     <option value="a_cuenta">A cuenta</option>
@@ -558,8 +732,15 @@ const VentasDeudasPage = () => {
                   <select
                     value={estado}
                     onChange={(e) => setEstado(e.target.value)}
+                    disabled={fuente === 'cxc'}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800
-                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={
+                      fuente === 'cxc'
+                        ? 'Filtro no disponible en modo CxC'
+                        : undefined
+                    }
                   >
                     <option value="">Todos</option>
                     <option value="confirmada">Confirmada</option>
@@ -589,6 +770,12 @@ const VentasDeudasPage = () => {
                     portalZIndex={3000}
                     dropdownMaxHeight="40vh"
                     menuPlacement="bottom"
+                    disabled={fuente === 'cxc'}
+                    title={
+                      fuente === 'cxc'
+                        ? 'Filtro no disponible en modo CxC'
+                        : undefined
+                    }
                   />
                 </div>
               </div>
@@ -606,6 +793,9 @@ const VentasDeudasPage = () => {
                     onChange={(val) => {
                       console.log('Ciudad seleccionada:', val);
                       setCiudadId(val || null);
+
+                      // Benjamin Orellana - 25-02-2026 - Si cambia ciudad, limpiamos reparto para evitar filtros inconsistentes.
+                      setRepartoId(null);
                     }}
                     placeholder="Todas"
                     getOptionLabel={(c) => c?.nombre || ''}
@@ -631,9 +821,13 @@ const VentasDeudasPage = () => {
                       setLocalidadId(val || null);
                     }}
                     placeholder={
-                      ciudadId ? 'Todas' : 'Seleccioná una ciudad primero'
+                      fuente === 'cxc'
+                        ? 'No disponible en CxC'
+                        : ciudadId
+                          ? 'Todas'
+                          : 'Seleccioná una ciudad primero'
                     }
-                    disabled={!ciudadId}
+                    disabled={!ciudadId || fuente === 'cxc'}
                     getOptionLabel={(l) => l?.nombre || ''}
                     getOptionValue={(l) => l?.id}
                     getOptionSearchText={(l) => l?.nombre || ''}
@@ -657,9 +851,13 @@ const VentasDeudasPage = () => {
                       setBarrioId(val || null);
                     }}
                     placeholder={
-                      localidadId ? 'Todos' : 'Seleccioná una localidad'
+                      fuente === 'cxc'
+                        ? 'No disponible en CxC'
+                        : localidadId
+                          ? 'Todos'
+                          : 'Seleccioná una localidad'
                     }
-                    disabled={!localidadId}
+                    disabled={!localidadId || fuente === 'cxc'}
                     getOptionLabel={(b) => b?.nombre || ''}
                     getOptionValue={(b) => b?.id}
                     getOptionSearchText={(b) => b?.nombre || ''}
@@ -720,175 +918,270 @@ const VentasDeudasPage = () => {
             >
               <div className="flex justify-between items-center mb-3">
                 <h2 className="text-sm sm:text-base font-semibold text-gray-800">
-                  Ventas con deuda ({meta.total} registros)
+                  {tablaTitle}
                 </h2>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50/90 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        ID
-                      </th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Fecha
-                      </th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Cliente
-                      </th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Vendedor
-                      </th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Reparto
-                      </th>
-
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Tipo
-                      </th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-600">
-                        Estado
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold text-gray-600">
-                        Total neto
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold text-gray-600">
-                        A cuenta
-                      </th>
-                      <th className="px-4 py-2 text-right font-semibold text-gray-600">
-                        Saldo
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventas.length === 0 && (
+                {fuente === 'cxc' ? (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50/90 border-b border-gray-200">
                       <tr>
-                        <td
-                          colSpan={7}
-                          className="px-4 py-6 text-center text-gray-500"
-                        >
-                          No hay deudas para los filtros seleccionados.
-                        </td>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Último mov.
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Saldo previo
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Ventas
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Pagos
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Saldo total
+                        </th>
                       </tr>
-                    )}
+                    </thead>
 
-                    {ventas.map((v) => {
-                      const totalNeto = Number(v.total_neto ?? 0);
-                      const aCuenta = Number(v.monto_a_cuenta ?? 0);
-                      const saldo = Math.max(0, totalNeto - aCuenta);
-
-                      const tipoUI =
-                        v.tipo === 'fiado' && aCuenta > 0 ? 'a_cuenta' : v.tipo;
-
-                      return (
-                        <tr
-                          key={v.id}
-                          className="border-b border-gray-100 hover:bg-orange-50/40 transition"
-                        >
-                          <td className="px-4 py-2 text-gray-700">#{v.id}</td>
-
-                          <td className="px-4 py-2 text-gray-700">
-                            {fmtFecha(v.fecha)}
+                    <tbody>
+                      {cxcDeudas.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-6 text-center text-gray-500"
+                          >
+                            No hay deudas para los filtros seleccionados.
                           </td>
+                        </tr>
+                      )}
 
-                          {/* Cliente */}
-                          <td className="px-4 py-2 text-gray-800">
-                            <div className="flex items-center gap-2">
-                              <FaUser className="text-gray-400 text-xs" />
-                              <div className="flex flex-col leading-tight">
-                                <span className="font-medium">
-                                  {v.cliente?.nombre || '—'}
-                                </span>
-                                {v.cliente?.documento && (
-                                  <span className="text-[11px] text-gray-500">
-                                    {v.cliente.documento}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                      {cxcDeudas.map((r) => {
+                        const saldoTotal = Number(r.saldo_total ?? 0);
+                        const saldoPrev = Number(r.saldo_previo_total ?? 0);
+                        const ventasTotal = Number(r.ventas_total ?? 0);
+                        const pagosTotal = Number(r.pagos_total ?? 0);
 
-                          {/* Vendedor */}
-                          <td className="px-4 py-2 text-gray-800">
-                            <div className="flex items-center gap-2">
-                              <FaUserTie className="text-gray-400 text-xs" />
-                              <span className="font-medium">
-                                {v.vendedor?.nombre || '—'}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* Reparto */}
-                          <td className="px-4 py-2 text-gray-800">
-                            {(() => {
-                              const rid = Number(v.reparto_id || 0);
-                              if (!rid)
-                                return <span className="text-gray-400">—</span>;
-
-                              const rep = repartoById.get(rid);
-                              if (!rep) {
-                                return (
-                                  <span className="text-gray-500">#{rid}</span>
-                                );
-                              }
-
-                              return (
+                        return (
+                          <tr
+                            key={r.cliente_id}
+                            className="border-b border-gray-100 hover:bg-orange-50/40 transition"
+                          >
+                            <td className="px-4 py-2 text-gray-800">
+                              <div className="flex items-center gap-2">
+                                <FaUser className="text-gray-400 text-xs" />
                                 <div className="flex flex-col leading-tight">
                                   <span className="font-medium">
-                                    {rep.nombre}
+                                    {r.nombre || '—'}
                                   </span>
-                                  {rep?.ciudad?.nombre && (
+                                  <span className="text-[11px] text-gray-500">
+                                    {r.documento || '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-2 text-gray-700">
+                              {fmtFecha(r.ultima_fecha_mov)}
+                            </td>
+
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(saldoPrev)}
+                            </td>
+
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(ventasTotal)}
+                            </td>
+
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(pagosTotal)}
+                            </td>
+
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(saldoTotal)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50/90 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          ID
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Fecha
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Vendedor
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Reparto
+                        </th>
+
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Tipo
+                        </th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">
+                          Estado
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Total neto
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          A cuenta
+                        </th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">
+                          Saldo
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ventas.length === 0 && (
+                        <tr>
+                          <td
+                            // Benjamin Orellana - 25-02-2026 - Corrige colSpan para coincidir con la cantidad real de columnas
+                            colSpan={10}
+                            className="px-4 py-6 text-center text-gray-500"
+                          >
+                            No hay deudas para los filtros seleccionados.
+                          </td>
+                        </tr>
+                      )}
+
+                      {ventas.map((v) => {
+                        const totalNeto = Number(v.total_neto ?? 0);
+                        const aCuenta = Number(v.monto_a_cuenta ?? 0);
+                        const saldo = Math.max(0, totalNeto - aCuenta);
+
+                        const tipoUI =
+                          v.tipo === 'fiado' && aCuenta > 0
+                            ? 'a_cuenta'
+                            : v.tipo;
+
+                        return (
+                          <tr
+                            key={v.id}
+                            className="border-b border-gray-100 hover:bg-orange-50/40 transition"
+                          >
+                            <td className="px-4 py-2 text-gray-700">#{v.id}</td>
+
+                            <td className="px-4 py-2 text-gray-700">
+                              {fmtFecha(v.fecha)}
+                            </td>
+
+                            {/* Cliente */}
+                            <td className="px-4 py-2 text-gray-800">
+                              <div className="flex items-center gap-2">
+                                <FaUser className="text-gray-400 text-xs" />
+                                <div className="flex flex-col leading-tight">
+                                  <span className="font-medium">
+                                    {v.cliente?.nombre || '—'}
+                                  </span>
+                                  {v.cliente?.documento && (
                                     <span className="text-[11px] text-gray-500">
-                                      {rep.ciudad.nombre}
+                                      {v.cliente.documento}
                                     </span>
                                   )}
                                 </div>
-                              );
-                            })()}
-                          </td>
+                              </div>
+                            </td>
 
-                          <td className="px-4 py-2">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
-                                badgeTipoClasses[tipoUI] ||
-                                'bg-gray-100 text-gray-700 border-gray-200'
-                              }`}
-                            >
-                              {tipoUI}
-                            </span>
-                          </td>
+                            {/* Vendedor */}
+                            <td className="px-4 py-2 text-gray-800">
+                              <div className="flex items-center gap-2">
+                                <FaUserTie className="text-gray-400 text-xs" />
+                                <span className="font-medium">
+                                  {v.vendedor?.nombre || '—'}
+                                </span>
+                              </div>
+                            </td>
 
-                          <td className="px-4 py-2">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
-                                badgeEstadoClasses[v.estado] ||
-                                'bg-gray-100 text-gray-700 border-gray-200'
-                              }`}
-                            >
-                              {v.estado}
-                            </span>
-                          </td>
+                            {/* Reparto */}
+                            <td className="px-4 py-2 text-gray-800">
+                              {(() => {
+                                const rid = Number(v.reparto_id || 0);
+                                if (!rid)
+                                  return (
+                                    <span className="text-gray-400">—</span>
+                                  );
 
-                          {/* Total neto */}
-                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
-                            {moneyAR(totalNeto)}
-                          </td>
+                                const rep = repartoById.get(rid);
+                                if (!rep) {
+                                  return (
+                                    <span className="text-gray-500">
+                                      #{rid}
+                                    </span>
+                                  );
+                                }
 
-                          {/* A cuenta */}
-                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
-                            {moneyAR(aCuenta)}
-                          </td>
+                                return (
+                                  <div className="flex flex-col leading-tight">
+                                    <span className="font-medium">
+                                      {rep.nombre}
+                                    </span>
+                                    {rep?.ciudad?.nombre && (
+                                      <span className="text-[11px] text-gray-500">
+                                        {rep.ciudad.nombre}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </td>
 
-                          {/* Saldo (lo que debe) */}
-                          <td className="px-4 py-2 text-right font-semibold text-gray-900">
-                            {moneyAR(saldo)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <td className="px-4 py-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                  badgeTipoClasses[tipoUI] ||
+                                  'bg-gray-100 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {tipoUI}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs border ${
+                                  badgeEstadoClasses[v.estado] ||
+                                  'bg-gray-100 text-gray-700 border-gray-200'
+                                }`}
+                              >
+                                {v.estado}
+                              </span>
+                            </td>
+
+                            {/* Total neto */}
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(totalNeto)}
+                            </td>
+
+                            {/* A cuenta */}
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(aCuenta)}
+                            </td>
+
+                            {/* Saldo (lo que debe) */}
+                            <td className="px-4 py-2 text-right font-semibold text-gray-900">
+                              {moneyAR(saldo)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {/* Paginación simple */}
@@ -923,6 +1216,6 @@ const VentasDeudasPage = () => {
       </section>
     </>
   );
-};;
+};
 
 export default VentasDeudasPage;

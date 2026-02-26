@@ -281,7 +281,6 @@ export default function ClienteFormModal({
     };
   }, [open, isEdit, initial?.id]);
 
-
   // ------- Cascada (filtros derivados) -------
   const localidadesFiltradas = useMemo(() => {
     const cid = Number(form.ciudad_id) || null;
@@ -354,28 +353,20 @@ export default function ClienteFormModal({
     const ciudadOK = Number(form.ciudad_id) > 0;
     if (!ciudadOK) out.ciudad_id = 'La ciudad es obligatoria.';
 
-    const calleOK = String(form.direccion_calle || '').trim().length > 0;
-    if (!calleOK) out.direccion_calle = 'La calle es obligatoria.';
-
-    const numeroOK = String(form.direccion_numero || '').trim().length > 0;
-    if (!numeroOK) out.direccion_numero = 'El número de calle es obligatorio.';
-
-    // Reparto: opcional, pero si se eligió, debe ser numérico válido
-    if (form.reparto_id !== '') {
-      const rid = Number(form.reparto_id);
+    // Benjamin Orellana - 24-02-2026 - Reparto ahora es obligatorio en el formulario y se valida antes de enviar al backend.
+    const repartoRaw = String(form.reparto_id ?? '').trim();
+    if (!repartoRaw) {
+      out.reparto_id = 'El reparto es obligatorio.';
+    } else {
+      const rid = Number(repartoRaw);
       if (!Number.isFinite(rid) || rid <= 0) {
         out.reparto_id = 'El reparto seleccionado es inválido.';
       }
     }
 
+    // Benjamin Orellana - 24-02-2026 - Calle y número dejan de ser obligatorios por requerimiento; se permiten vacíos.
     return out;
-  }, [
-    form.nombre,
-    form.ciudad_id,
-    form.direccion_calle,
-    form.direccion_numero,
-    form.reparto_id
-  ]);
+  }, [form.nombre, form.ciudad_id, form.reparto_id]);
 
   const canSave = useMemo(() => {
     return Object.keys(errors).length === 0;
@@ -418,7 +409,7 @@ export default function ClienteFormModal({
         // Se mantiene por compatibilidad: si el usuario completa detalle, se envía
         barrio_id: toNumOrNull(form.barrio_id),
 
-        // Obligatorios por negocio
+        // Benjamin Orellana - 24-02-2026 - Dirección detallada opcional: se envía null si calle/número llegan vacíos.
         direccion_calle: toNull(form.direccion_calle?.trim()),
         direccion_numero: toNull(form.direccion_numero?.trim()),
         direccion_piso_dpto: toNull(form.direccion_piso_dpto?.trim()),
@@ -683,7 +674,7 @@ export default function ClienteFormModal({
                 {/* Asignación inicial de reparto (desde el modal) */}
                 <motion.div variants={fieldV}>
                   <label className="block text-sm font-medium text-gray-200 mb-2">
-                    Reparto (opcional)
+                    Reparto <span className="text-cyan-300">*</span>
                   </label>
 
                   <select
@@ -700,7 +691,7 @@ export default function ClienteFormModal({
                         ? '(Elegí ciudad primero)'
                         : repartosLoading
                           ? 'Cargando repartos…'
-                          : '(Sin asignar)'}
+                          : 'Seleccionar reparto…'}
                     </option>
 
                     {repartosFiltrados.map((r) => (
@@ -772,7 +763,7 @@ export default function ClienteFormModal({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Calle <span className="text-cyan-300">*</span>
+                      Calle
                     </label>
                     <input
                       name="direccion_calle"
@@ -792,7 +783,7 @@ export default function ClienteFormModal({
 
                   <motion.div variants={fieldV}>
                     <label className="block text-sm font-medium text-gray-200 mb-2">
-                      Número <span className="text-cyan-300">*</span>
+                      Número
                     </label>
                     <input
                       name="direccion_numero"

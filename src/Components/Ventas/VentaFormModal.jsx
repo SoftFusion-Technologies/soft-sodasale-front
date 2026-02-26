@@ -28,11 +28,22 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     // Benjamin Orellana - 17-01-2026
     // Monto a cuenta para ventas tipo "a_cuenta"
     // ======================================================
-    monto_a_cuenta: ''
+    monto_a_cuenta: '',
+    // ======================================================
+    // Benjamin Orellana - 25-02-2026
+    // Saldo previo (deuda histórica) sin registrar productos
+    // ======================================================
+    saldo_previo: ''
   });
 
   const [saving, setSaving] = useState(false);
 
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Estados UI para carga de saldo previo (unitario)
+  // ======================================================
+  const [savingSaldoPrevio, setSavingSaldoPrevio] = useState(false);
+  const [saldoPrevioCargado, setSaldoPrevioCargado] = useState(false);
   // Catálogos
   const [ciudades, setCiudades] = useState([]);
   const [clientes, setClientes] = useState([]);
@@ -110,9 +121,15 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
   // ======================================================
   const handleReparto = (e) => {
     const v = e.target.value;
+
+    // Benjamin Orellana - 25-02-2026 - Reset de saldo previo al cambiar reparto
+    setSaldoPrevioCargado(false);
+    setSavingSaldoPrevio(false);
+
     setForm((prev) => ({
       ...prev,
-      reparto_id: v === '' ? '' : v
+      reparto_id: v === '' ? '' : v,
+      saldo_previo: ''
     }));
   };
 
@@ -131,13 +148,19 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
       tipo: 'fiado',
       observaciones: '',
       // Benjamin Orellana - 17-01-2026
-      monto_a_cuenta: ''
+      monto_a_cuenta: '',
+      // Benjamin Orellana - 25-02-2026
+      saldo_previo: ''
     });
     setSelectedCliente(null);
     setVendedorLabel('');
     setItems([
       { producto_id: '', producto: null, cantidad: '', precio_unit: '' }
     ]);
+
+    // Benjamin Orellana - 25-02-2026 - Resetea estado visual de saldo previo al reabrir modal
+    setSavingSaldoPrevio(false);
+    setSaldoPrevioCargado(false);
   };
 
   const moneyRound = (n) =>
@@ -204,6 +227,38 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     () => formatMoneyLabel(saldoNumber),
     [saldoNumber]
   );
+
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Saldo previo (deuda histórica) - cálculo y validación UI
+  // ======================================================
+  const saldoPrevioNumber = useMemo(() => {
+    const n = Number(form.saldo_previo);
+    return Number.isFinite(n) ? moneyRound(n) : 0;
+  }, [form.saldo_previo]);
+
+  const canSubmitSaldoPrevio = useMemo(() => {
+    const cliId = Number(form.cliente_id);
+    const vendId = Number(form.vendedor_id);
+
+    const hasCliente = Number.isFinite(cliId) && cliId > 0;
+    const hasVendedor = Number.isFinite(vendId) && vendId > 0;
+    const montoOk = Number.isFinite(saldoPrevioNumber) && saldoPrevioNumber > 0;
+
+    return (
+      hasCliente &&
+      hasVendedor &&
+      montoOk &&
+      !savingSaldoPrevio &&
+      !saldoPrevioCargado
+    );
+  }, [
+    form.cliente_id,
+    form.vendedor_id,
+    saldoPrevioNumber,
+    savingSaldoPrevio,
+    saldoPrevioCargado
+  ]);
 
   // Puede guardar: cliente + vendedor + al menos un ítem válido
   const canSave = useMemo(() => {
@@ -346,31 +401,32 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
     setForm((f) => ({ ...f, observaciones: value }));
   };
 
-const handleCiudad = (e) => {
-  const v = e.target.value;
+  const handleCiudad = (e) => {
+    const v = e.target.value;
 
-  // ======================================================
-  // Benjamin Orellana - 17-01-2026
-  // Reset duro al cambiar ciudad para evitar clientes "pegados"
-  // ======================================================
-  setClientes([]);
-  setSelectedCliente(null);
-  setVendedorLabel('');
+    // ======================================================
+    // Benjamin Orellana - 17-01-2026
+    // Reset duro al cambiar ciudad para evitar clientes "pegados"
+    // ======================================================
+    setClientes([]);
+    setSelectedCliente(null);
+    setVendedorLabel('');
+    setSaldoPrevioCargado(false);
+    setSavingSaldoPrevio(false);
+    setForm((prev) => ({
+      ...prev,
+      ciudad_id: v,
 
-  setForm((prev) => ({
-    ...prev,
-    ciudad_id: v,
+      // al cambiar ciudad, limpiamos selección y dependencias
+      reparto_id: '',
+      cliente_id: '',
+      vendedor_id: '',
 
-    // al cambiar ciudad, limpiamos selección y dependencias
-    reparto_id: '',
-    cliente_id: '',
-    vendedor_id: '',
-
-    localidad_id: '',
-    barrio_id: ''
-  }));
-};
-
+      localidad_id: '',
+      barrio_id: '',
+      saldo_previo: ''
+    }));
+  };
 
   // ======================================================
   // Benjamin Orellana - 17-01-2026
@@ -394,6 +450,25 @@ const handleCiudad = (e) => {
     setForm((f) => ({ ...f, monto_a_cuenta: String(moneyRound(clamped)) }));
   };
 
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Handler de saldo previo (deuda histórica)
+  // ======================================================
+  const handleSaldoPrevio = (e) => {
+    const raw = e.target.value;
+
+    if (saldoPrevioCargado) return; // bloquea edición si ya fue cargado
+
+    if (raw === '') {
+      setForm((f) => ({ ...f, saldo_previo: '' }));
+      return;
+    }
+
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return;
+
+    setForm((f) => ({ ...f, saldo_previo: String(moneyRound(n)) }));
+  };
   // ---------- Cliente & vendedor ----------
   const handleClienteChange = (cliOrId) => {
     if (!cliOrId) {
@@ -422,6 +497,10 @@ const handleCiudad = (e) => {
       }));
       return;
     }
+    // Benjamin Orellana - 25-02-2026 - Al cambiar cliente, reseteamos estado visual de saldo previo
+    setSaldoPrevioCargado(false);
+    setSavingSaldoPrevio(false);
+    setForm((prev) => ({ ...prev, saldo_previo: '' }));
 
     setSelectedCliente(cli);
     setForm((f) => ({
@@ -568,6 +647,54 @@ const handleCiudad = (e) => {
     }
   };
 
+  // ======================================================
+  // Benjamin Orellana - 25-02-2026
+  // Registrar saldo previo (deuda histórica) sin crear venta
+  // ======================================================
+  const submitSaldoPrevio = async () => {
+    if (!canSubmitSaldoPrevio) return;
+
+    try {
+      setSavingSaldoPrevio(true);
+
+      const fechaPayload =
+        form.fecha instanceof Date ? form.fecha.toISOString() : form.fecha;
+
+      const payload = {
+        cliente_id: Number(form.cliente_id),
+        vendedor_id: Number(form.vendedor_id),
+        fecha: fechaPayload,
+        monto: moneyRound(saldoPrevioNumber),
+        // opcional: guardar contexto
+        reparto_id:
+          form.reparto_id === '' ||
+          form.reparto_id === null ||
+          form.reparto_id === undefined
+            ? null
+            : Number(form.reparto_id),
+        observaciones:
+          form.observaciones?.trim() ||
+          (selectedCliente?.nombre
+            ? `Saldo previo cargado desde venta individual (${selectedCliente.nombre})`
+            : 'Saldo previo cargado desde venta individual')
+      };
+
+      // Ajustar endpoint si tu ruta final difiere
+      await http.post('/ventas/saldo-previo', payload);
+
+      // bloqueo en UI para evitar doble click / duplicado accidental
+      setSaldoPrevioCargado(true);
+    } catch (err) {
+      console.error('Error cargando saldo previo (unitario):', err);
+      // Si usás Swal global, acá podés reemplazar por tu showErrorSwal(...)
+      const msg =
+        err?.response?.data?.mensajeError ||
+        'No se pudo registrar el saldo previo.';
+      window.alert(msg);
+    } finally {
+      setSavingSaldoPrevio(false);
+    }
+  };
   // ---------- Render ----------
   return (
     <AnimatePresence>
@@ -942,46 +1069,97 @@ const handleCiudad = (e) => {
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
-                      {/* Benjamin Orellana - 17-01-2026: Casilla A cuenta */}
-                      <div className="w-full sm:w-44">
-                        <p className="text-xs text-gray-300/80 mb-1">
-                          A cuenta
-                        </p>
-
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.monto_a_cuenta ?? ''}
-                          onChange={(e) => {
-                            handleMontoACuenta(e);
-                            const n = Number(e.target.value);
-                            if (
-                              Number.isFinite(n) &&
-                              n > 0 &&
-                              form.tipo !== 'a_cuenta'
-                            ) {
-                              setForm((prev) => ({
-                                ...prev,
-                                tipo: 'a_cuenta'
-                              }));
-                            }
-                          }}
-                          className="w-full rounded-xl border px-2.5 py-2 text-white text-sm
-      border-white/10 bg-white/5
-      focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
-                          placeholder="0.00"
-                        />
-
-                        {aCuentaNumber > moneyRound(totalNeto) + 0.01 && (
-                          <p className="mt-1 text-[11px] text-red-200/90">
-                            El monto a cuenta no puede superar el total.
+                      {/* Benjamin Orellana - 17-01-2026 / 25-02-2026: A cuenta + Saldo previo (debajo) */}
+                      <div className="w-full sm:w-[260px]">
+                        {/* A cuenta */}
+                        <div className="mb-2.5">
+                          <p className="text-xs text-gray-300/80 mb-1">
+                            A cuenta
                           </p>
-                        )}
+
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={form.monto_a_cuenta ?? ''}
+                            onChange={(e) => {
+                              handleMontoACuenta(e);
+                              const n = Number(e.target.value);
+                              if (
+                                Number.isFinite(n) &&
+                                n > 0 &&
+                                form.tipo !== 'a_cuenta'
+                              ) {
+                                setForm((prev) => ({
+                                  ...prev,
+                                  tipo: 'a_cuenta'
+                                }));
+                              }
+                            }}
+                            className="w-full rounded-xl border px-2.5 py-2 text-white text-sm
+                 border-white/10 bg-white/5
+                 focus:outline-none focus:ring-2 focus:ring-cyan-300/40 focus:border-transparent"
+                            placeholder="0.00"
+                          />
+
+                          {aCuentaNumber > moneyRound(totalNeto) + 0.01 && (
+                            <p className="mt-1 text-[11px] text-red-200/90">
+                              El monto a cuenta no puede superar el total.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Saldo previo (deuda histórica) - debajo de A cuenta */}
+                        <div>
+                          <p className="text-xs text-amber-200/90 mb-1">
+                            Saldo previo
+                          </p>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={form.saldo_previo ?? ''}
+                              onChange={handleSaldoPrevio}
+                              disabled={savingSaldoPrevio || saldoPrevioCargado}
+                              className="flex-1 rounded-xl border px-2.5 py-2 text-white text-sm
+                   border-amber-300/30 bg-amber-500/5
+                   focus:outline-none focus:ring-2 focus:ring-amber-300/30 focus:border-transparent
+                   disabled:opacity-60 disabled:cursor-not-allowed"
+                              placeholder="0.00"
+                            />
+
+                            <button
+                              type="button"
+                              onClick={submitSaldoPrevio}
+                              disabled={!canSubmitSaldoPrevio}
+                              className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold transition
+                   border border-amber-300/40 bg-amber-500/15 text-amber-100
+                   hover:bg-amber-500/25 hover:border-amber-300/60
+                   disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={
+                                saldoPrevioCargado
+                                  ? 'Saldo previo ya cargado'
+                                  : 'Registrar saldo previo (deuda histórica)'
+                              }
+                            >
+                              {savingSaldoPrevio
+                                ? 'Guardando…'
+                                : saldoPrevioCargado
+                                  ? 'Cargada'
+                                  : 'OK'}
+                            </button>
+                          </div>
+
+                          <p className="mt-1 text-[11px] text-amber-100/70">
+                            Carga deuda histórica sin registrar productos.
+                          </p>
+                        </div>
                       </div>
 
                       {/* Totales */}
-                      <div className="text-right">
+                      <div className="text-right ml-5">
                         <p className="text-xs text-gray-300/80">
                           Total estimado
                         </p>

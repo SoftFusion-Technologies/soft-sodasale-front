@@ -23,7 +23,10 @@ import { listRepartos } from '../../api/repartos';
 import { listClientesDeReparto } from '../../api/repartosClientes';
 import { listProductos } from '../../api/productos';
 import { listVendedores } from '../../api/vendedores';
-import { createVentasRepartoMasiva } from '../../api/ventas';
+import {
+  createVentasRepartoMasiva,
+  createSaldoPrevioCliente
+} from '../../api/ventas';
 
 import { showErrorSwal, showWarnSwal, showSuccessSwal } from '../../ui/swal';
 
@@ -125,6 +128,13 @@ export default function VentaRepartoFormModal({
     if (!stillVisible) setClienteSelectedId(null);
   }, [clientesUI, clienteSelectedId, clienteSearch]);
 
+  useEffect(() => {
+    // Benjamin Orellana - 25/02/2026 - Limpia saldos previos cargados al cambiar reparto, ya que cambia el conjunto de clientes.
+    setSaldoPrevioPorCliente({});
+    setSavingSaldoPrevioByCliente({});
+    setSaldoPrevioCargadoByCliente({});
+  }, [repartoId]);
+
   const handleSelectCliente = (clienteId) => {
     const idNum = Number(clienteId);
     if (!Number.isFinite(idNum) || idNum <= 0) return;
@@ -154,6 +164,8 @@ export default function VentaRepartoFormModal({
       ...prev,
       [clienteId]: Number.isFinite(num) && num >= 0 ? num : 0
     }));
+    // Benjamin Orellana - 24/02/2026 - Si cambia el a cuenta, invalidamos la marca de venta cargada del cliente
+    setSavedByCliente((prev) => ({ ...prev, [clienteId]: false }));
   };
 
   const handleOcultarCliente = (clienteId) => {
@@ -188,6 +200,40 @@ export default function VentaRepartoFormModal({
   // Cantidades por cliente-producto: { `${clienteId}-${productoId}`: number }
   const [cantidades, setCantidades] = useState({});
 
+  // Benjamin Orellana - 25/02/2026 - Estado local para cargar deuda histórica (saldo previo) por cliente en venta masiva.
+  const [saldoPrevioPorCliente, setSaldoPrevioPorCliente] = useState({});
+
+  // Controla loading del botón OK de saldo previo por cliente.
+  const [savingSaldoPrevioByCliente, setSavingSaldoPrevioByCliente] = useState(
+    {}
+  );
+
+  // Marca visualmente qué clientes ya registraron saldo previo en esta sesión del modal.
+  const [saldoPrevioCargadoByCliente, setSaldoPrevioCargadoByCliente] =
+    useState({});
+
+  // Benjamin Orellana - 25/02/2026 - Normaliza monto de saldo previo por cliente (permite string del input y devuelve número válido o null).
+  const getSaldoPrevioClienteNum = (clienteId) => {
+    const raw = saldoPrevioPorCliente?.[clienteId];
+    if (raw === '' || raw === undefined || raw === null) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  };
+
+  // Benjamin Orellana - 25/02/2026 - Actualiza input de saldo previo por cliente permitiendo edición controlada.
+  const handleSaldoPrevioChange = (clienteId, value) => {
+    setSaldoPrevioPorCliente((prev) => ({
+      ...prev,
+      [clienteId]: value
+    }));
+
+    // Si el usuario cambia el valor luego de una carga, se desmarca "cargado" visual para evitar falsas confirmaciones.
+    setSaldoPrevioCargadoByCliente((prev) => ({
+      ...prev,
+      [clienteId]: false
+    }));
+  };
   // Reseteo general al abrir/cerrar
   useEffect(() => {
     if (!open) return;
@@ -362,6 +408,8 @@ export default function VentaRepartoFormModal({
       ...prev,
       [key]: clean
     }));
+    // Benjamin Orellana - 24/02/2026 - Si cambia la cantidad, invalidamos la marca de venta cargada del cliente
+    setSavedByCliente((prev) => ({ ...prev, [clienteId]: false }));
   };
 
   // Subtotales por cliente y total general
@@ -381,14 +429,14 @@ export default function VentaRepartoFormModal({
     return map;
   }, [clientesVisibles, productos, cantidades]);
 
-  const totalGeneral = useMemo(
-    () =>
-      Object.values(subtotalesPorCliente).reduce(
-        (acc, v) => acc + (Number(v) || 0),
-        0
-      ),
-    [subtotalesPorCliente]
-  );
+  // const totalGeneral = useMemo(
+  //   () =>
+  //     Object.values(subtotalesPorCliente).reduce(
+  //       (acc, v) => acc + (Number(v) || 0),
+  //       0
+  //     ),
+  //   [subtotalesPorCliente]
+  // );
 
   const totalGeneralConACuenta = useMemo(() => {
     return (clientesVisibles || []).reduce((acc, cli) => {
@@ -442,57 +490,142 @@ export default function VentaRepartoFormModal({
     user?.name ||
     'Seleccioná un vendedor';
 
-  // Construir payload y enviar
-  const handleSubmit = async (e) => {
-    e?.preventDefault?.();
+  // Benjamin Orellana - 24/02/2026 - Estado por cliente para guardar ventas individuales sin cerrar el modal
+  const [savingByCliente, setSavingByCliente] = useState({});
+  const [savedByCliente, setSavedByCliente] = useState({});
+
+  // Benjamin Orellana - 24/02/2026 - Construye una venta individual (1 cliente) reutilizando la misma lógica del submit masivo
+  const buildVentaItemByCliente = (cli) => {
+    if (!cli?.id) return null;
+
+    const lineas = [];
+    for (const prod of productos || []) {
+      const key = `${cli.id}-${prod.id}`;
+      const cant = Number(cantidades[key] || 0);
+      if (!cant || cant <= 0) continue;
+
+      const precio_unit = getPrecioVenta(prod);
+      lineas.push({
+        producto_id: prod.id,
+        cantidad: cant,
+        precio_unit
+      });
+    }
+
+    if (!lineas.length) return null;
+
+    const aCuentaRaw = Number(aCuentaPorCliente?.[cli.id] ?? 0);
+    const monto_a_cuenta =
+      Number.isFinite(aCuentaRaw) && aCuentaRaw > 0 ? aCuentaRaw : 0;
+
+    return {
+      cliente_id: cli.id,
+      monto_a_cuenta,
+      lineas
+    };
+  };
+
+  // Benjamin Orellana - 24/02/2026 - Validaciones de cabecera reutilizables para submit global e individual
+  const validarCabeceraVentasMasivas = () => {
     if (!repartoSelected?.id) {
-      return showWarnSwal({
+      showWarnSwal({
         title: 'Falta reparto',
         text: 'Seleccioná un reparto para continuar.'
       });
+      return false;
     }
 
     const vendedorIdNum = Number(vendedorId);
     if (!Number.isFinite(vendedorIdNum) || vendedorIdNum <= 0) {
-      return showWarnSwal({
+      showWarnSwal({
         title: 'Vendedor requerido',
         text: 'Seleccioná un vendedor para registrar las ventas.'
       });
+      return false;
     }
 
-    // Armamos items por cliente con al menos una línea
+    return true;
+  };
+
+  // Benjamin Orellana - 24/02/2026 - Guarda una sola venta (por cliente) y notifica éxito sin cerrar el modal
+  const handleSubmitCliente = async (cli) => {
+    if (!cli?.id) return;
+    if (!validarCabeceraVentasMasivas()) return;
+
+    const item = buildVentaItemByCliente(cli);
+
+    if (!item) {
+      return showWarnSwal({
+        title: 'Sin productos',
+        text: `No cargaste cantidades para ${cli.nombre || 'este cliente'}.`
+      });
+    }
+
+    const vendedorIdNum = Number(vendedorId);
+
+    const payload = {
+      fecha: `${fecha}T00:00:00`,
+      tipo: tipoVenta,
+      vendedor_id: vendedorIdNum,
+      reparto_id: repartoId,
+      observaciones: null,
+      items: [item] // 1 sola venta
+    };
+
+    try {
+      setSavingByCliente((prev) => ({ ...prev, [cli.id]: true }));
+
+      const resp = await createVentasRepartoMasiva(payload);
+
+      setSavedByCliente((prev) => ({ ...prev, [cli.id]: true }));
+
+      await showSuccessSwal({
+        title: 'Venta cargada',
+        text:
+          resp?.mensaje ||
+          `La venta de ${cli.nombre || 'cliente'} se cargó exitosamente.`
+      });
+
+      onCreated?.(resp);
+      // NO cerrar modal por pedido del cliente
+      // onClose?.();
+    } catch (err) {
+      console.error(`Error creando venta individual (cliente ${cli.id}):`, err);
+      const { mensajeError, tips } = err || {};
+
+      await showErrorSwal({
+        title: 'No se pudo cargar la venta',
+        text:
+          mensajeError ||
+          `Ocurrió un error al guardar la venta de ${cli.nombre || 'cliente'}.`,
+        tips
+      });
+    } finally {
+      setSavingByCliente((prev) => ({ ...prev, [cli.id]: false }));
+    }
+  };
+
+  // Construir payload y enviar
+  const handleSubmit = async (e) => {
+    e?.preventDefault?.();
+
+    if (!validarCabeceraVentasMasivas()) return;
+
+    const vendedorIdNum = Number(vendedorId);
+
+    // Benjamin Orellana - 24/02/2026 - En el submit global se envían SOLO ventas pendientes (clientes no cargados con OK individual)
     const items = [];
     for (const cli of clientesVisibles || []) {
-      const lineas = [];
-      for (const prod of productos || []) {
-        const key = `${cli.id}-${prod.id}`;
-        const cant = Number(cantidades[key] || 0);
-        if (!cant || cant <= 0) continue;
-        const precio_unit = getPrecioVenta(prod);
-        lineas.push({
-          producto_id: prod.id,
-          cantidad: cant,
-          precio_unit
-        });
-      }
+      if (savedByCliente?.[cli.id]) continue; // ya cargado, no reenviar
 
-      if (lineas.length > 0) {
-        const aCuentaRaw = Number(aCuentaPorCliente[cli.id] ?? 0);
-        const monto_a_cuenta =
-          Number.isFinite(aCuentaRaw) && aCuentaRaw > 0 ? aCuentaRaw : 0;
-
-        items.push({
-          cliente_id: cli.id,
-          monto_a_cuenta, //  NUEVO: se manda al backend
-          lineas
-        });
-      }
+      const item = buildVentaItemByCliente(cli);
+      if (item) items.push(item);
     }
 
     if (!items.length) {
       return showWarnSwal({
-        title: 'Sin productos',
-        text: 'No cargaste cantidades para ningún cliente.'
+        title: 'Sin ventas pendientes',
+        text: 'Todos los clientes visibles ya fueron cargados o no tienen productos con cantidad.'
       });
     }
 
@@ -513,14 +646,27 @@ export default function VentaRepartoFormModal({
     try {
       setSaving(true);
       const resp = await createVentasRepartoMasiva(payload);
+
+      // Benjamin Orellana - 24/02/2026 - Marca como cargados los clientes incluidos en el submit global
+      setSavedByCliente((prev) => {
+        const next = { ...prev };
+        for (const it of items) {
+          next[it.cliente_id] = true;
+        }
+        return next;
+      });
+
       await showSuccessSwal({
         title: 'Ventas creadas',
         text:
           resp?.mensaje ||
           `Se generaron las ventas para ${items.length} cliente(s) del reparto.`
       });
+
       onCreated?.(resp);
-      onClose?.();
+
+      // Benjamin Orellana - 24/02/2026 - Se mantiene abierto el modal por pedido del cliente
+      // onClose?.();
     } catch (err) {
       console.error('Error creando ventas por reparto:', err);
       const { mensajeError, tips } = err || {};
@@ -534,6 +680,83 @@ export default function VentaRepartoFormModal({
     }
   };
 
+  // Benjamin Orellana - 25/02/2026 - Registra saldo previo de un cliente desde la venta masiva sin crear productos/ventas nuevas.
+  const handleSubmitSaldoPrevioCliente = async (cli) => {
+    try {
+      if (!repartoSelected?.id) {
+        return showWarnSwal({
+          title: 'Falta reparto',
+          text: 'Seleccioná un reparto para continuar.'
+        });
+      }
+
+      const vendedorIdNum = Number(vendedorId);
+      if (!Number.isFinite(vendedorIdNum) || vendedorIdNum <= 0) {
+        return showWarnSwal({
+          title: 'Vendedor requerido',
+          text: 'Seleccioná un vendedor para registrar el saldo previo.'
+        });
+      }
+
+      const montoSaldoPrevio = getSaldoPrevioClienteNum(cli.id);
+      if (!montoSaldoPrevio) {
+        return showWarnSwal({
+          title: 'Saldo previo inválido',
+          text: 'Ingresá un monto mayor a 0 para cargar la deuda previa.'
+        });
+      }
+
+      setSavingSaldoPrevioByCliente((prev) => ({
+        ...prev,
+        [cli.id]: true
+      }));
+
+      const payload = {
+        cliente_id: cli.id,
+        fecha: `${fecha}T00:00:00`,
+        monto: montoSaldoPrevio,
+        vendedor_id: vendedorIdNum,
+        reparto_id: repartoId ? Number(repartoId) : null,
+        descripcion: `Saldo previo cargado desde venta masiva por reparto (${repartoSelected?.nombre || 'sin nombre'})`
+      };
+
+      console.log(
+        '[REPARTO-MASIVA][SALDO-PREVIO] Payload enviado:',
+        JSON.stringify(payload, null, 2)
+      );
+
+      const resp = await createSaldoPrevioCliente(payload);
+
+      setSaldoPrevioCargadoByCliente((prev) => ({
+        ...prev,
+        [cli.id]: true
+      }));
+
+      await showSuccessSwal({
+        title: 'Saldo previo cargado',
+        text:
+          resp?.mensaje ||
+          `Se registró un saldo previo de ${formatArMoney(montoSaldoPrevio)} para ${cli.nombre}.`
+      });
+
+      // Si tu pantalla resumen depende de alguna recarga externa:
+      onCreated?.(resp);
+    } catch (err) {
+      console.error('Error cargando saldo previo por cliente:', err);
+      const { mensajeError, tips } = err || {};
+      await showErrorSwal({
+        title: 'No se pudo cargar el saldo previo',
+        text:
+          mensajeError || 'Ocurrió un error al registrar la deuda histórica.',
+        tips
+      });
+    } finally {
+      setSavingSaldoPrevioByCliente((prev) => ({
+        ...prev,
+        [cli.id]: false
+      }));
+    }
+  };
   // Benjamin Orellana - 17/01/2026 - Helper: formato moneda AR (miles '.' y decimales ',')
   function formatArMoney(value, opts = {}) {
     const {
@@ -592,7 +815,7 @@ export default function VentaRepartoFormModal({
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="relative w-full max-w-[96vw] sm:max-w-5xl max-h-[92vh]
+            className="relative w-full max-w-[96vw] sm:max-w-7xl max-h-[92vh]
                        overflow-y-auto overscroll-contain rounded-3xl border border-teal-300/40
                        bg-gradient-to-br from-slate-950/95 via-slate-900/95 to-teal-950/90
                        shadow-[0_0_45px_rgba(45,212,191,0.45)]"
@@ -813,12 +1036,12 @@ export default function VentaRepartoFormModal({
                         <span className="font-medium">{vendedorNombreUI}</span>
                       </span>
                     </div>
-                    <div className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/15 border border-emerald-400/60 px-2.5 py-1 shrink-0">
+                    {/* <div className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/15 border border-emerald-400/60 px-2.5 py-1 shrink-0">
                       <BadgeDollarSign className="h-4 w-4 text-emerald-300" />
                       <span className="text-xs font-semibold text-emerald-100">
                         {formatArMoney(totalGeneral)}
                       </span>
-                    </div>
+                    </div> */}
                   </div>
                 </motion.div>
 
@@ -872,6 +1095,7 @@ export default function VentaRepartoFormModal({
 
               {/* Layout principal: clientes + productos */}
               <form onSubmit={handleSubmit}>
+                {' '}
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)]">
                   {/* Columna izquierda: clientes */}
                   <motion.div
@@ -1017,7 +1241,7 @@ export default function VentaRepartoFormModal({
                               >
                                 {/* Cabecera cliente + montos */}
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                                  <div>
+                                  <div className="min-w-0">
                                     <span className="text-xs sm:text-sm font-semibold text-cyan-50 truncate block">
                                       {cli.nombre}
                                     </span>
@@ -1029,30 +1253,170 @@ export default function VentaRepartoFormModal({
                                     </span>
                                   </div>
 
-                                  {/* Campo A cuenta */}
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[11px] text-teal-100/80">
-                                      A cuenta:
-                                    </span>
-                                    <input
-                                      ref={setACuentaInputRef(cli.id)}
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={aCuentaCli || ''}
-                                      onFocus={() =>
-                                        setClienteSelectedId(Number(cli.id))
-                                      }
-                                      onChange={(e) =>
-                                        handleACuentaChange(
-                                          cli.id,
-                                          e.target.value
-                                        )
-                                      }
-                                      className="w-24 rounded-lg border border-teal-400/60 bg-slate-950/90 px-2 py-1 text-[11px] text-teal-50
-                       focus:outline-none focus:ring-1 focus:ring-teal-400/80"
-                                      placeholder="0.00"
-                                    />
+                                  {/* Benjamin Orellana - 24/02/2026 - Acciones por venta individual (cliente) con OK sin cerrar modal */}
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {/* Campo A cuenta + Saldo previo (debajo, mismo lugar) */}
+                                    <div className="flex flex-col items-start gap-1.5">
+                                      {/* Fila A cuenta */}
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[11px] text-teal-100/80 min-w-[62px]">
+                                          A cuenta:
+                                        </span>
+                                        <input
+                                          ref={setACuentaInputRef(cli.id)}
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={aCuentaCli || ''}
+                                          onFocus={() =>
+                                            setClienteSelectedId(Number(cli.id))
+                                          }
+                                          onChange={(e) =>
+                                            handleACuentaChange(
+                                              cli.id,
+                                              e.target.value
+                                            )
+                                          }
+                                          className="w-24 rounded-lg border border-teal-400/60 bg-slate-950/90 px-2 py-1 text-[11px] text-teal-50
+                 focus:outline-none focus:ring-1 focus:ring-teal-400/80"
+                                          placeholder="0.00"
+                                        />
+                                        {/* Botón OK por cliente */}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleSubmitCliente(cli)
+                                          }
+                                          disabled={
+                                            !!savingByCliente?.[cli.id] ||
+                                            !!savedByCliente?.[cli.id] ||
+                                            !repartoSelected?.id ||
+                                            !Number.isFinite(
+                                              Number(vendedorId)
+                                            ) ||
+                                            Number(vendedorId) <= 0 ||
+                                            !buildVentaItemByCliente(cli)
+                                          }
+                                          className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-[11px] font-semibold transition
+             border border-teal-300/50 bg-teal-500/20 text-teal-50
+             hover:bg-teal-500/30 hover:border-teal-300/70
+             disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title={
+                                            savedByCliente?.[cli.id]
+                                              ? 'Esta venta ya fue cargada'
+                                              : 'Guardar solo esta venta'
+                                          }
+                                        >
+                                          {savingByCliente?.[cli.id]
+                                            ? 'Guardando…'
+                                            : savedByCliente?.[cli.id]
+                                              ? 'Cargada'
+                                              : 'OK'}
+                                        </button>
+                                      </div>
+
+                                      {/* Fila Saldo previo (justo debajo de A cuenta) */}
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-[11px] text-amber-100/85 min-w-[62px]">
+                                          Saldo Previo:
+                                        </span>
+
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={
+                                            saldoPrevioPorCliente?.[cli.id] ??
+                                            ''
+                                          }
+                                          onFocus={() =>
+                                            setClienteSelectedId(Number(cli.id))
+                                          }
+                                          onChange={(e) => {
+                                            // Bloqueado luego de cargar para evitar doble registro accidental
+                                            if (
+                                              saldoPrevioCargadoByCliente?.[
+                                                cli.id
+                                              ]
+                                            )
+                                              return;
+                                            handleSaldoPrevioChange(
+                                              cli.id,
+                                              e.target.value
+                                            );
+                                          }}
+                                          disabled={
+                                            !!saldoPrevioCargadoByCliente?.[
+                                              cli.id
+                                            ] ||
+                                            !!savingSaldoPrevioByCliente?.[
+                                              cli.id
+                                            ]
+                                          }
+                                          className="w-24 rounded-lg border border-amber-400/60 bg-slate-950/90 px-2 py-1 text-[11px] text-amber-50
+                 focus:outline-none focus:ring-1 focus:ring-amber-400/80
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+                                          placeholder="0.00"
+                                        />
+
+                                        {/* OK de saldo previo */}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleSubmitSaldoPrevioCliente(cli)
+                                          }
+                                          disabled={
+                                            !!savingSaldoPrevioByCliente?.[
+                                              cli.id
+                                            ] ||
+                                            !!saldoPrevioCargadoByCliente?.[
+                                              cli.id
+                                            ] || // <- bloqueo al cargar
+                                            !repartoSelected?.id ||
+                                            !Number.isFinite(
+                                              Number(vendedorId)
+                                            ) ||
+                                            Number(vendedorId) <= 0 ||
+                                            !getSaldoPrevioClienteNum(cli.id)
+                                          }
+                                          className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-[11px] font-semibold transition
+                 border border-amber-300/50 bg-amber-500/20 text-amber-50
+                 hover:bg-amber-500/30 hover:border-amber-300/70
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          title={
+                                            saldoPrevioCargadoByCliente?.[
+                                              cli.id
+                                            ]
+                                              ? 'Saldo previo ya cargado'
+                                              : 'Registrar saldo previo'
+                                          }
+                                        >
+                                          {savingSaldoPrevioByCliente?.[cli.id]
+                                            ? 'Guardando…'
+                                            : saldoPrevioCargadoByCliente?.[
+                                                  cli.id
+                                                ]
+                                              ? 'Cargada'
+                                              : 'OK'}
+                                        </button>
+
+                                        {!!saldoPrevioCargadoByCliente?.[
+                                          cli.id
+                                        ] && (
+                                          <span className="text-[11px] font-semibold text-emerald-300">
+                                            Cargada
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Estado visual */}
+                                    {!!savedByCliente?.[cli.id] &&
+                                      !savingByCliente?.[cli.id] && (
+                                        <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+                                          Cargada
+                                        </span>
+                                      )}
                                   </div>
                                 </div>
 
@@ -1136,13 +1500,19 @@ export default function VentaRepartoFormModal({
                                      bg-gradient-to-r from-teal-500 to-cyan-400 text-white text-[13px] font-semibold
                                      hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed transition"
                         >
-                          {saving ? 'Guardando…' : 'Crear ventas'}
+                          {saving
+                            ? 'Guardando…'
+                            : 'Crear ventas pendientes'}{' '}
                         </button>
                       </div>
                     </div>
                   </motion.div>
                 </div>
-
+                {/* Benjamin Orellana - 24/02/2026 - Ayuda visual para flujo mixto (OK por cliente + submit global opcional) */}
+                <div className="text-[11px] text-cyan-100/70">
+                  Podés guardar cada venta con el botón OK de cada cliente sin
+                  cerrar esta ventana.
+                </div>
                 <div className="mt-4 h-[3px] w-full rounded-full bg-gradient-to-r from-teal-400/60 via-cyan-300/70 to-teal-400/60 opacity-70" />
               </form>
             </div>

@@ -148,6 +148,17 @@ export async function replaceVentaItems(ventaId, payload) {
 export async function  createVentasRepartoMasiva(payload) {
   http.post('/ventas/reparto-masiva', payload).then((r) => r.data);
 }
+// Benjamin Orellana - 25/02/2026 - API para registrar saldo previo individual en CxC (deuda histórica sin productos).
+export const createSaldoPrevioCliente = async (payload) => {
+  const { data } = await http.post('/ventas/saldo-previo', payload);
+  return data;
+};
+
+// Benjamin Orellana - 25/02/2026 - API para registrar saldos previos masivos en CxC (múltiples clientes en un lote).
+export const createSaldosPreviosMasiva = async (payload) => {
+  const { data } = await http.post('/ventas/saldos-previos-masiva', payload);
+  return data;
+};
 export default {
   listVentas,
   getVenta,
@@ -160,5 +171,7 @@ export default {
   addVentaItems,
   updateVentaItem,
   deleteVentaItem,
-  createVentasRepartoMasiva
+  createVentasRepartoMasiva,
+  createSaldoPrevioCliente,
+  createSaldosPreviosMasiva
 };

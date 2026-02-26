@@ -17,13 +17,11 @@ export const createCobranzaCliente = async (payload) => {
   return data;
 };
 
-//  NUEVO: lista solo clientes con deuda fiado (usa /ventas/deudores-fiado)
-export const listClientesConDeudaFiado = async () => {
-  const { data } = await http.get('/ventas/deudores-fiado');
-  // data = [{ cliente_id, nombre, documento, telefono, email, total_pendiente, ... }]
-  return data;
+// Benjamin Orellana - 25/02/2026 - Lista deudores desde CxC (ruta mantenida /ventas/deudores-fiado)
+export const listClientesConDeudaFiado = async (params = {}) => {
+  const { data } = await http.get('/ventas/deudores-fiado', { params });
+  return Array.isArray(data) ? data : [];
 };
-
 // GET /cobranzas-clientes (listado paginado + filtros)
 export async function listCobranzasClientes(params = {}) {
   const { data } = await http.get(`/cobranzas-clientes${toQS(params)}`);
