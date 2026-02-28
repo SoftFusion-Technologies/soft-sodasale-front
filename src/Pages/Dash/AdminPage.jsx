@@ -20,7 +20,7 @@ import {
 import DeudoresResumenModal from '../../Components/Ventas/DeudoresResumenModal';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_URL = import.meta.env.VITE_API_URL || 'https://vps-5697083-x.dattaweb.com';
 
 // ---------- Tile genérico reuso estilo HammerX ----------
 const DashboardTile = ({ title, description, to, icon: Icon, delay = 0 }) => {

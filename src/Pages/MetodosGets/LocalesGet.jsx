@@ -9,7 +9,7 @@ import { getUserId } from '../../utils/authUtils';
 
 Modal.setAppElement('#root');
 
-const API = 'http://localhost:8080/locales';
+const API = 'https://vps-5697083-x.dattaweb.com/locales';
 
 const defaultFormValues = {
   nombre: '',

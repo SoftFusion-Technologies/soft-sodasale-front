@@ -71,7 +71,7 @@ export default function VentaFormModal({ open, onClose, onSubmit }) {
         setLoadingRepartos(true);
         setRepartosError(null);
 
-        // Endpoint: http://localhost:8080/repartos
+        // Endpoint: https://vps-5697083-x.dattaweb.com/repartos
         const r = await http.get('/repartos', {
           params: {
             limit: 9999,

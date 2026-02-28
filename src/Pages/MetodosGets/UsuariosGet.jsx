@@ -64,7 +64,7 @@ export default function UsuariosGet() {
 
   const fetchLocales = async () => {
     try {
-      const res = await axios.get('http://localhost:8080/locales');
+      const res = await axios.get('https://vps-5697083-x.dattaweb.com/locales');
       setLocales(res.data);
     } catch (error) {
       console.error('Error al obtener locales:', error);

@@ -109,7 +109,7 @@ export default function ClienteFormModal({
     (typeof import.meta !== 'undefined' &&
       import.meta?.env &&
       import.meta.env.VITE_API_URL) ||
-    'http://localhost:8080';
+    'https://vps-5697083-x.dattaweb.com';
 
   // Si no nos pasaron barrios por props, los cargamos
   useEffect(() => {
